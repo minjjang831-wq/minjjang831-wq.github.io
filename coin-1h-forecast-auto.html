@@ -1,0 +1,3091 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>1시간 가격 예측 콘솔</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Gothic+A1:wght@500;700;800&family=IBM+Plex+Mono:wght@200;300;400;500&family=IBM+Plex+Sans+KR:wght@300;400;500;600&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --bg:#0A0E13; --surf:#10171F; --surf2:#151F29; --sunk:#0C1218;
+    --line:#1E2B37; --line-2:rgba(30,43,55,.6);
+    --text:#DCE6EE; --dim:#7B8D9C; --dimmer:#4A5A69;
+    --sig:#5AAFCB;      /* 측정한 것: 방향 */
+    --amb:#E2A94B;      /* 끌어낸 것: 가격 */
+    --up:#6FB894; --down:#D4715F;
+    --mono:"IBM Plex Mono",ui-monospace,monospace;
+    --sans:"IBM Plex Sans KR","IBM Plex Sans",system-ui,sans-serif;
+    --disp:"Gothic A1","IBM Plex Sans KR",sans-serif;
+  }
+  *{box-sizing:border-box;}
+  html,body{margin:0;padding:0;}
+  body{
+    background:
+      radial-gradient(1100px 480px at 50% -140px,rgba(90,175,203,.09),transparent 70%),
+      var(--bg);
+    color:var(--text); font-family:var(--sans); font-size:14.5px; line-height:1.62;
+    -webkit-font-smoothing:antialiased; padding:0 0 60px;
+  }
+  .app{max-width:1140px;margin:0 auto;padding:0 16px;}
+
+  /* ---------- 상단 바 ---------- */
+  .topbar{
+    display:flex;align-items:center;gap:16px;flex-wrap:wrap;
+    padding:16px 0 12px;position:sticky;top:0;z-index:20;
+    background:linear-gradient(180deg,var(--bg) 72%,rgba(10,14,19,0));
+  }
+  .brand{display:flex;align-items:center;gap:11px;margin-right:auto;}
+  .mark{
+    width:26px;height:26px;border-radius:5px;flex:none;position:relative;
+    background:linear-gradient(150deg,rgba(90,175,203,.9),rgba(226,169,75,.85));
+  }
+  .mark::after{
+    content:"";position:absolute;inset:5px;border-radius:2px;background:var(--bg);
+    clip-path:polygon(0 62%,26% 62%,26% 30%,52% 30%,52% 78%,78% 78%,78% 46%,100% 46%,100% 100%,0 100%);
+  }
+  .brand-t{font-family:var(--disp);font-weight:800;font-size:16px;letter-spacing:-.01em;line-height:1.2;}
+  .brand-s{font-family:var(--mono);font-size:11px;color:var(--dim);letter-spacing:.04em;}
+  .tabs{display:flex;gap:4px;background:var(--sunk);border:1px solid var(--line);border-radius:7px;padding:3px;}
+  .tab{
+    font-family:var(--sans);font-size:12.5px;font-weight:500;letter-spacing:.01em;
+    background:transparent;color:var(--dim);border:0;border-radius:5px;
+    padding:6px 12px;cursor:pointer;transition:color .15s,background .15s;
+  }
+  .tab:hover{color:var(--text);}
+  .tab.sel{color:var(--bg);background:var(--sig);}
+  .tab:disabled{opacity:.45;cursor:default;}
+  .btn{
+    font-family:var(--sans);font-size:12.5px;font-weight:500;
+    background:transparent;color:var(--sig);border:1px solid rgba(90,175,203,.45);
+    border-radius:6px;padding:7px 14px;cursor:pointer;transition:background .15s,border-color .15s;
+  }
+  .btn:hover{background:rgba(90,175,203,.1);border-color:var(--sig);}
+  .btn:disabled{color:var(--dimmer);border-color:var(--line);cursor:default;background:transparent;}
+  .btn.quiet{color:var(--dim);border-color:var(--line);}
+  .btn.quiet:hover{color:var(--text);background:rgba(255,255,255,.03);}
+  button:focus-visible,summary:focus-visible{outline:2px solid var(--sig);outline-offset:2px;}
+
+  /* ---------- 상태 줄 ---------- */
+  .statusbar{
+    display:flex;align-items:center;gap:12px;flex-wrap:wrap;
+    border:1px solid var(--line);border-radius:7px;background:var(--sunk);
+    padding:9px 13px;font-family:var(--mono);font-size:11.5px;color:var(--dim);
+  }
+  .dot{width:7px;height:7px;border-radius:50%;background:var(--amb);flex:none;}
+  .dot.live{background:var(--sig);box-shadow:0 0 0 0 rgba(90,175,203,.55);animation:pulse 2.4s ease-out infinite;}
+  .dot.err{background:var(--down);}
+  @keyframes pulse{70%{box-shadow:0 0 0 7px rgba(90,175,203,0);}100%{box-shadow:0 0 0 0 rgba(90,175,203,0);}}
+  .stxt{flex:1 1 200px;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+  .prog{width:120px;height:3px;background:var(--line);border-radius:2px;overflow:hidden;flex:none;}
+  .prog i{display:block;height:100%;width:0;background:var(--sig);transition:width .35s ease;}
+  .prog.busy i{width:34% !important;animation:slide 1.15s ease-in-out infinite;}
+  @keyframes slide{0%{transform:translateX(-110%);}100%{transform:translateX(320%);}}
+  .cd{display:flex;align-items:center;gap:7px;flex:none;color:var(--text);}
+  .ring{width:20px;height:20px;transform:rotate(-90deg);}
+  .ring circle{fill:none;stroke-width:3;}
+  .ring circle:first-child{stroke:var(--line);}
+  .ring circle:last-child{stroke:var(--sig);stroke-dasharray:81.7;stroke-linecap:round;transition:stroke-dashoffset .9s linear;}
+
+  /* ---------- 격자 ---------- */
+  main{display:grid;grid-template-columns:repeat(12,1fr);gap:14px;margin-top:14px;}
+  .s12{grid-column:span 12;} .s8{grid-column:span 8;} .s7{grid-column:span 7;}
+  .s5{grid-column:span 5;} .s4{grid-column:span 4;}
+  @media(max-width:900px){.s8,.s7,.s5,.s4{grid-column:span 12;}}
+
+  .card{
+    position:relative;overflow:hidden;
+    background:linear-gradient(180deg,var(--surf),#0D141B);
+    border:1px solid var(--line);border-radius:8px;padding:15px 16px 17px;
+  }
+  .card::before{
+    content:"";position:absolute;top:0;left:0;right:0;height:1px;
+    background:linear-gradient(90deg,transparent,rgba(90,175,203,.3),transparent);
+  }
+  .card.accent::before{background:linear-gradient(90deg,transparent,rgba(226,169,75,.35),transparent);}
+  .chead{display:flex;align-items:baseline;justify-content:space-between;gap:10px;margin-bottom:13px;}
+  .ctitle{font-family:var(--disp);font-weight:700;font-size:13.5px;letter-spacing:.01em;}
+  .cmeta{font-family:var(--mono);font-size:11px;color:var(--dim);text-align:right;}
+  .lab{font-size:10.5px;letter-spacing:.13em;color:var(--dim);display:block;margin-bottom:5px;font-weight:500;}
+  .note{font-size:12.5px;color:var(--dim);line-height:1.55;margin:0;}
+  .note strong{color:var(--text);font-weight:500;}
+
+  .readout{font-family:var(--mono);font-weight:200;font-size:clamp(40px,8.5vw,62px);line-height:1;
+           letter-spacing:-.025em;font-variant-numeric:tabular-nums;}
+  .readout .unit{font-size:.3em;color:var(--dim);letter-spacing:.06em;margin-left:9px;font-weight:300;}
+  .readout.amb{color:var(--amb);}
+  .val{font-family:var(--mono);font-size:19px;font-weight:300;font-variant-numeric:tabular-nums;}
+  .up{color:var(--up);} .down{color:var(--down);} .flat{color:var(--dim);}
+
+  /* ---------- 종합 요약 ---------- */
+  .sum{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;}
+  @media(max-width:900px){.sum{grid-template-columns:repeat(2,1fr);}}
+  @media(max-width:460px){.sum{grid-template-columns:1fr;}}
+  .scell{
+    width:100%;text-align:left;font:inherit;color:inherit;cursor:pointer;
+    background:var(--sunk);border:1px solid var(--line);border-radius:6px;padding:11px 12px;
+    transition:border-color .15s,background .15s;
+  }
+  .scell:hover{border-color:var(--dim);}
+  .scell.on{border-color:rgba(90,175,203,.55);background:rgba(90,175,203,.06);}
+  .scell:disabled{cursor:default;opacity:.75;}
+  .stag{display:flex;align-items:baseline;justify-content:space-between;gap:6px;}
+  .stag b{font-family:var(--disp);font-weight:700;font-size:13px;letter-spacing:.02em;}
+  .stag i{font-style:normal;font-size:10.5px;color:var(--dim);}
+  .sprice{font-family:var(--mono);font-size:18px;font-weight:300;font-variant-numeric:tabular-nums;
+          letter-spacing:-.01em;margin-top:7px;}
+  .schg{font-family:var(--mono);font-size:11px;font-variant-numeric:tabular-nums;}
+  .srow{display:flex;justify-content:space-between;gap:6px;margin-top:9px;padding-top:8px;
+        border-top:1px solid var(--line-2);font-family:var(--mono);font-size:12px;font-variant-numeric:tabular-nums;}
+  .sage{font-family:var(--mono);font-size:10px;color:var(--dimmer);margin-top:4px;
+        overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+
+  /* ---------- 방향 게이지 ---------- */
+  .gauge{margin-top:16px;}
+  .gtrack{position:relative;height:44px;background:var(--sunk);border:1px solid var(--line);border-radius:5px;overflow:hidden;}
+  .gfill{position:absolute;top:0;bottom:0;background:rgba(90,175,203,.16);transition:left .6s cubic-bezier(.22,1,.36,1),width .6s cubic-bezier(.22,1,.36,1);}
+  .gmid{position:absolute;top:0;bottom:0;left:50%;width:1px;background:var(--dimmer);}
+  .gq{position:absolute;top:0;bottom:0;width:1px;background:repeating-linear-gradient(180deg,var(--line) 0 3px,transparent 3px 6px);}
+  .gbase{position:absolute;top:0;bottom:0;width:2px;background:rgba(226,169,75,.75);transition:left .6s ease;}
+  .gbase::after{content:"그냥 찍기";position:absolute;top:3px;left:5px;font-family:var(--mono);font-size:9px;color:var(--amb);white-space:nowrap;}
+  .gneedle{position:absolute;top:-2px;bottom:-2px;width:2px;background:var(--sig);
+           box-shadow:0 0 12px 2px rgba(90,175,203,.5);transition:left .6s cubic-bezier(.22,1,.36,1);}
+  .gneedle::before{content:"";position:absolute;top:2px;left:-4px;border:5px solid transparent;border-top-color:var(--sig);}
+  .gscale{display:flex;justify-content:space-between;font-family:var(--mono);font-size:10px;color:var(--dimmer);margin-top:5px;}
+
+  .chip{display:inline-flex;align-items:center;gap:7px;font-family:var(--mono);font-size:12px;
+        border:1px solid var(--line);border-radius:20px;padding:4px 11px;color:var(--text);background:var(--sunk);}
+  .chip .pip{width:6px;height:6px;border-radius:50%;background:var(--sig);}
+  .meter{height:5px;background:var(--sunk);border-radius:3px;overflow:hidden;margin-top:10px;border:1px solid var(--line);}
+  .meter i{display:block;height:100%;width:0;background:linear-gradient(90deg,rgba(90,175,203,.4),var(--sig));transition:width .6s ease;}
+  .kv{display:flex;justify-content:space-between;gap:8px;font-family:var(--mono);font-size:12px;padding:7px 0;border-bottom:1px solid var(--line-2);}
+  .kv:last-child{border-bottom:0;}
+  .kv span:first-child{font-family:var(--sans);color:var(--dim);font-size:12px;}
+
+  /* ---------- 하네스 사슬 ---------- */
+  .chain{display:flex;align-items:stretch;gap:7px;margin-top:6px;}
+  .node{flex:1 1 130px;background:var(--sunk);border:1px solid var(--line);border-radius:6px;padding:11px 12px;min-width:0;}
+  .node.lead{border-color:rgba(90,175,203,.4);}
+  .node.out{border-color:rgba(226,169,75,.4);}
+  .nlab{display:block;font-size:10.5px;letter-spacing:.1em;color:var(--dim);margin-bottom:4px;}
+  .nval{display:block;font-family:var(--mono);font-size:clamp(17px,2.4vw,22px);font-weight:300;font-variant-numeric:tabular-nums;letter-spacing:-.01em;}
+  .nval.sig{color:var(--sig);} .nval.amb{color:var(--amb);}
+  .nsub{display:block;font-family:var(--mono);font-size:10px;color:var(--dimmer);margin-top:3px;}
+  .link{flex:0 0 26px;display:flex;align-items:center;justify-content:center;position:relative;
+        font-family:var(--mono);font-size:14px;color:var(--dimmer);}
+  .link .wire{position:absolute;left:0;right:0;top:50%;height:1px;background:var(--line);overflow:hidden;}
+  .link .wire i{position:absolute;top:0;height:1px;width:14px;background:var(--sig);animation:flow 1.6s linear infinite;}
+  @keyframes flow{from{left:-14px;}to{left:100%;}}
+  @media(max-width:760px){
+    .chain{flex-direction:column;}
+    .link{flex:0 0 18px;}
+    .link .wire{left:50%;right:auto;top:0;bottom:0;height:auto;width:1px;}
+    .link .wire i{width:1px;height:10px;animation:flowv 1.6s linear infinite;}
+    @keyframes flowv{from{top:-10px;}to{top:100%;}}
+  }
+
+  /* ---------- 차트 ---------- */
+  canvas{width:100%;display:block;touch-action:pan-y;}
+
+  /* ---------- 성적표 ---------- */
+  .kpis{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;}
+  .kpis.wide{grid-template-columns:repeat(6,1fr);}
+  @media(max-width:900px){.kpis.wide{grid-template-columns:repeat(3,1fr);}}
+  @media(max-width:560px){.kpis,.kpis.wide{grid-template-columns:repeat(2,1fr);}}
+  .kpi{background:var(--sunk);border:1px solid var(--line);border-radius:6px;padding:10px 11px;}
+  .kpi .k{font-size:10.5px;letter-spacing:.1em;color:var(--dim);}
+  .kpi .v{font-family:var(--mono);font-size:20px;font-weight:300;font-variant-numeric:tabular-nums;display:block;margin:3px 0 2px;}
+  .kpi .n{font-size:11px;color:var(--dimmer);line-height:1.35;}
+  .tiers{margin-top:14px;}
+  .tier{display:grid;grid-template-columns:64px 44px 1fr 58px 52px;align-items:center;gap:8px;
+        font-family:var(--mono);font-size:11.5px;padding:6px 0;border-bottom:1px solid var(--line-2);}
+  .tier:last-child{border-bottom:0;}
+  .tier .tn{font-family:var(--sans);color:var(--dim);font-size:11.5px;}
+  .tier .tc{color:var(--dimmer);text-align:right;}
+  .tier .th,.tier .te{text-align:right;font-variant-numeric:tabular-nums;}
+  .tbar{position:relative;height:6px;background:var(--sunk);border-radius:2px;overflow:hidden;}
+  .tbar b{position:absolute;left:50%;top:0;bottom:0;width:1px;background:var(--dimmer);}
+  .tbar i{position:absolute;top:0;bottom:0;border-radius:2px;transition:width .5s ease;}
+  @media(max-width:560px){.tier{grid-template-columns:56px 36px 1fr 50px 46px;}}
+
+  /* ---------- 표 ---------- */
+  table{width:100%;border-collapse:collapse;font-family:var(--mono);font-size:11.5px;font-variant-numeric:tabular-nums;}
+  th{font-family:var(--sans);font-size:10px;letter-spacing:.1em;color:var(--dim);text-align:right;font-weight:500;padding:0 0 7px;border-bottom:1px solid var(--line);}
+  th:first-child,td:first-child{text-align:left;}
+  td{padding:6px 0;border-bottom:1px solid var(--line-2);text-align:right;color:var(--text);}
+  td.muted{color:var(--dimmer);}
+  tr:last-child td{border-bottom:0;}
+  .pill{display:inline-block;font-size:10.5px;padding:1px 7px;border-radius:10px;border:1px solid;}
+  .pill.ok{color:var(--up);border-color:rgba(111,184,148,.45);background:rgba(111,184,148,.1);}
+  .pill.no{color:var(--down);border-color:rgba(212,113,95,.45);background:rgba(212,113,95,.1);}
+  .pill.w{color:var(--dimmer);border-color:var(--line);}
+
+  /* ---------- 뼈대 로딩 ---------- */
+  .skel{display:grid;gap:14px;}
+  .sk{height:14px;border-radius:4px;background:linear-gradient(90deg,var(--surf) 25%,var(--surf2) 45%,var(--surf) 65%);
+      background-size:280% 100%;animation:sh 1.5s linear infinite;}
+  @keyframes sh{from{background-position:120% 0;}to{background-position:-120% 0;}}
+
+  /* ---------- 방법론 ---------- */
+  details{border:1px solid var(--line);border-radius:7px;background:var(--sunk);margin-bottom:8px;}
+  summary{cursor:pointer;list-style:none;padding:11px 14px;font-weight:500;font-size:13px;display:flex;align-items:center;gap:9px;}
+  summary::-webkit-details-marker{display:none;}
+  summary::before{content:"";width:5px;height:5px;border-right:1.5px solid var(--sig);border-bottom:1.5px solid var(--sig);
+                  transform:rotate(-45deg);transition:transform .2s;flex:none;margin-left:2px;}
+  details[open] summary::before{transform:rotate(45deg);}
+  details .body{padding:0 14px 13px 28px;color:var(--dim);font-size:13px;}
+  details .body p{margin:0 0 9px;}
+  details .body p:last-child{margin-bottom:0;}
+  details .body strong{color:var(--text);font-weight:500;}
+
+  input[type=file]{font-size:12px;color:var(--dim);}
+  textarea{width:100%;background:var(--sunk);color:var(--text);border:1px solid var(--line);border-radius:6px;
+           padding:10px;font-family:var(--mono);font-size:11px;resize:vertical;}
+  .foot-note{color:var(--dimmer);font-size:12px;margin-top:22px;text-align:center;}
+  .fade{opacity:0;transform:translateY(6px);animation:in .5s cubic-bezier(.22,1,.36,1) forwards;}
+  @keyframes in{to{opacity:1;transform:none;}}
+  @media(prefers-reduced-motion:reduce){
+    *{animation-duration:.001ms !important;animation-iteration-count:1 !important;transition-duration:.001ms !important;}
+    .fade{opacity:1;transform:none;}
+  }
+
+  /* ---------- 세부 연산 팝업 ---------- */
+  .mbtn{
+    font-family:var(--sans);font-size:11.5px;color:var(--sig);background:transparent;
+    border:1px solid rgba(90,175,203,.35);border-radius:5px;padding:3px 9px;cursor:pointer;
+    white-space:nowrap;transition:background .15s,border-color .15s;
+  }
+  .mbtn:hover{background:rgba(90,175,203,.1);border-color:var(--sig);}
+  .chead{flex-wrap:wrap;}
+  .chead .mbtn{align-self:center;}
+
+  /* ---------- 텔레그램 설정 ---------- */
+  .tgrid{display:grid;grid-template-columns:1fr 1fr;gap:11px;}
+  @media(max-width:640px){.tgrid{grid-template-columns:1fr;}}
+  .fld{display:block;min-width:0;}
+  .fld input{
+    width:100%;background:var(--sunk);color:var(--text);border:1px solid var(--line);
+    border-radius:6px;padding:9px 11px;font-family:var(--mono);font-size:12.5px;
+  }
+  .fld input:focus{outline:none;border-color:rgba(90,175,203,.6);}
+  .tgrow{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-top:12px;}
+  .chk{display:flex;align-items:center;gap:8px;font-size:12.5px;color:var(--dim);margin-right:auto;cursor:pointer;}
+  .chk input{width:15px;height:15px;accent-color:#5AAFCB;cursor:pointer;}
+  .chk:hover span{color:var(--text);}
+  .mbtn:disabled{color:var(--dimmer);border-color:var(--line);cursor:default;background:transparent;}
+  .modal{position:fixed;inset:0;z-index:60;display:flex;align-items:center;justify-content:center;padding:16px;}
+  .modal[hidden]{display:none;}
+  .mback{position:absolute;inset:0;background:rgba(5,8,11,.74);}
+  .mbox{
+    position:relative;width:min(860px,100%);max-height:88vh;overflow:auto;
+    background:linear-gradient(180deg,var(--surf),#0C131A);border:1px solid var(--line);
+    border-radius:10px;padding:15px 17px 20px;box-shadow:0 24px 60px rgba(0,0,0,.6);
+  }
+  .mhead{display:flex;align-items:baseline;gap:10px;flex-wrap:wrap;
+         padding-bottom:11px;border-bottom:1px solid var(--line);}
+  .mtitle{font-family:var(--disp);font-weight:800;font-size:15px;letter-spacing:-.01em;}
+  .msub{font-family:var(--mono);font-size:11px;color:var(--dim);margin-right:auto;}
+  .msec{margin-top:17px;}
+  .msec > .lab{margin-bottom:7px;}
+  .fx{
+    font-family:var(--mono);font-size:12px;color:var(--text);background:var(--sunk);
+    border:1px solid var(--line);border-radius:6px;padding:9px 11px;line-height:1.75;
+    overflow-x:auto;white-space:nowrap;
+  }
+  .fx em{font-style:normal;color:var(--dim);}
+  .fx b{font-weight:400;color:var(--amb);}
+  .fx s{text-decoration:none;color:var(--sig);}
+  .steps{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px;}
+  .step{flex:1 1 120px;background:var(--sunk);border:1px solid var(--line);border-radius:6px;padding:8px 10px;min-width:0;}
+  .step.out{border-color:rgba(226,169,75,.4);}
+  .step.lead{border-color:rgba(90,175,203,.4);}
+  .step .sl{display:block;font-size:10px;letter-spacing:.08em;color:var(--dim);}
+  .step .sv{display:block;font-family:var(--mono);font-size:15px;font-weight:300;margin-top:3px;font-variant-numeric:tabular-nums;}
+  .step .sn{display:block;font-family:var(--mono);font-size:9.5px;color:var(--dimmer);margin-top:3px;
+            overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+  .cbar{display:grid;grid-template-columns:1fr 130px 68px;align-items:center;gap:9px;
+        font-family:var(--mono);font-size:11px;padding:3px 0;}
+  .cbar .cn{font-family:var(--sans);color:var(--dim);font-size:11.5px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+  .cb{position:relative;height:7px;background:var(--sunk);border-radius:2px;border:1px solid var(--line);}
+  .cb b{position:absolute;left:50%;top:-1px;bottom:-1px;width:1px;background:var(--dimmer);}
+  .cb i{position:absolute;top:0;bottom:0;border-radius:2px;}
+  .cval{text-align:right;font-variant-numeric:tabular-nums;}
+  .mnote{font-size:12px;color:var(--dim);line-height:1.58;margin:9px 0 0;}
+  .mnote strong{color:var(--text);font-weight:500;}
+  tr.hl td{background:rgba(90,175,203,.09);color:var(--text);}
+  @media(max-width:560px){
+    .cbar{grid-template-columns:1fr 84px 58px;}
+    .mbox{padding:13px 13px 18px;}
+  }
+</style>
+</head>
+<body>
+<div class="app">
+
+  <header class="topbar">
+    <div class="brand">
+      <span class="mark"></span>
+      <div>
+        <div class="brand-t">1시간 가격 예측 콘솔</div>
+        <div class="brand-s">1시간봉 · <span id="symLabel">비트코인 BTCUSDT</span></div>
+      </div>
+    </div>
+    <nav class="tabs" id="coins"></nav>
+    <button class="btn" id="refresh">재계산</button>
+  </header>
+
+  <div class="statusbar">
+    <span class="dot" id="dot"></span>
+    <span class="stxt" id="statusText">시세 수신 중</span>
+    <div class="prog" id="prog"><i id="progFill"></i></div>
+    <div class="cd">
+      <svg class="ring" viewBox="0 0 32 32"><circle cx="16" cy="16" r="13"></circle><circle cx="16" cy="16" r="13" id="ringFill" stroke-dashoffset="81.7"></circle></svg>
+      <span id="countdown">—:—</span>
+    </div>
+  </div>
+
+  <div class="skel" id="skel" style="margin-top:14px">
+    <div class="card"><div class="sk" style="width:32%"></div><div class="sk" style="height:56px;margin-top:14px"></div><div class="sk" style="height:44px;margin-top:14px"></div></div>
+    <div class="card"><div class="sk" style="width:26%"></div><div class="sk" style="height:70px;margin-top:14px"></div></div>
+  </div>
+
+  <main>
+
+    <section class="card s12" id="sumPanel" style="display:none">
+      <div class="chead">
+        <span class="ctitle">종합 요약</span>
+        <span class="cmeta" id="sumMeta"></span>
+      </div>
+      <div class="sum" id="sumGrid"></div>
+    </section>
+
+    <section class="card s12" id="manualPanel" style="display:none">
+      <div class="chead"><span class="ctitle">수동 입력</span></div>
+      <p class="note" style="margin-bottom:12px">채팅 창 안에서는 바깥 인터넷에서 값을 가져올 수 없다. 이 파일을 내려받아 브라우저로 열면 알아서 가져온다.
+      지금 바로 보고 싶으면 한 시간마다 적힌 가격표를 넣어라. 시각, 시작 값, 가장 높았던 값, 가장 낮았던 값, 끝난 값, 거래량이 줄줄이 적힌 파일이면 되고 400줄쯤은 있어야 한다.</p>
+      <input type="file" id="fileIn" accept=".csv,.json,.txt" style="margin-bottom:12px">
+      <textarea id="pasteIn" rows="4" placeholder="여기에 붙여넣기"></textarea>
+      <div style="margin-top:12px"><button class="btn" id="applyData">적용</button></div>
+    </section>
+
+    <section class="card s12" id="tgPanel">
+      <div class="chead">
+        <span class="ctitle">텔레그램 자동 전송</span>
+        <span class="cmeta" id="tgStatus" style="margin-left:auto">—</span>
+      </div>
+      <div class="tgrid">
+        <label class="fld"><span class="lab">봇 토큰</span>
+          <input type="password" id="tgToken" placeholder="숫자:영문 형태의 토큰" autocomplete="off"></label>
+        <label class="fld"><span class="lab">대화 번호</span>
+          <input type="text" id="tgChat" placeholder="숫자 또는 @채널이름" autocomplete="off"></label>
+      </div>
+      <div class="tgrow">
+        <label class="chk"><input type="checkbox" id="tgOn"><span>매시 정각 1분에 네 코인 모두 계산하고 보내기</span></label>
+        <button class="btn quiet" id="tgFind">번호 찾기</button>
+        <button class="btn quiet" id="tgTest">시험 전송</button>
+        <button class="btn" id="tgNow">지금 전체 계산</button>
+      </div>
+      <p class="note" style="margin-top:11px">이 창이 열려 있는 동안에만 돌아간다. 창을 닫거나 컴퓨터가 잠들면 멈춘다.
+      다른 탭에 가 있어도 돌아가지만 브라우저가 숨은 탭을 늦추기 때문에 몇십 초 늦게 도착할 수 있다.
+      토큰은 이 브라우저 저장소에 그대로 들어간다. 남이 쓰는 컴퓨터에서는 켜지 마라.
+      끊기지 않는 전송이 필요하면 이 계산을 서버로 옮기고 정해진 시각에 부르는 방식으로 바꿔야 한다.</p>
+    </section>
+
+    <section class="card s8" id="dirPanel" style="display:none">
+      <div class="chead">
+        <span class="ctitle">방향 확률</span>
+        <span class="cmeta" id="dirTime" style="margin-left:auto"></span>
+        <button class="mbtn" id="btnDir" disabled>계산 과정</button>
+      </div>
+      <span class="lab">상승 확률 · 1시간 뒤</span>
+      <div class="readout" id="probVal">—<span class="unit">%</span></div>
+      <div class="gauge">
+        <div class="gtrack">
+          <div class="gfill" id="gFill"></div>
+          <div class="gq" id="gQ80a"></div><div class="gq" id="gQ80b"></div>
+          <div class="gq" id="gQ90a"></div><div class="gq" id="gQ90b"></div>
+          <div class="gmid"></div>
+          <div class="gbase" id="gBase"></div>
+          <div class="gneedle" id="gNeedle"></div>
+        </div>
+        <div class="gscale"><span>40</span><span>45</span><span>50</span><span>55</span><span>60</span></div>
+      </div>
+      <p class="note" style="margin-top:12px" id="dirNote"></p>
+    </section>
+
+    <section class="card s4" id="sigPanel" style="display:none">
+      <div class="chead"><span class="ctitle">신호 강도</span><button class="mbtn" id="btnSig" disabled>계산 과정</button></div>
+      <div class="chip"><span class="pip" id="sigPip"></span><span id="confLevel">—</span></div>
+      <div class="meter"><i id="sigMeter"></i></div>
+      <p class="note" style="margin-top:10px" id="confNote"></p>
+      <div style="margin-top:12px">
+        <div class="kv"><span>상승 비중</span><b id="kUpShare">—</b></div>
+        <div class="kv"><span>기준 적중</span><b id="kBase">—</b></div>
+        <div class="kv"><span>적용 방법</span><b id="kCfg">—</b></div>
+      </div>
+    </section>
+
+    <section class="card accent s7" id="predPanel" style="display:none">
+      <div class="chead">
+        <span class="ctitle">가격 예측</span>
+        <span class="cmeta" id="targetTime" style="margin-left:auto"></span>
+        <button class="mbtn" id="btnPred" disabled>계산 과정</button>
+      </div>
+      <div class="readout amb" id="predPrice">—<span class="unit">USDT</span></div>
+      <div style="margin:8px 0 16px;font-family:var(--mono);font-size:13px;color:var(--dim)">
+        <span class="val flat" id="predRet" style="font-size:15px">—</span>
+        <span style="margin:0 8px;color:var(--dimmer)">·</span>지금 <span id="baseClose">—</span>
+      </div>
+      <span class="lab">산출 경로</span>
+      <div class="chain">
+        <div class="node lead"><span class="nlab">상승 확률</span><span class="nval sig" id="hProb">—</span><span class="nsub">방향 모델</span></div>
+        <div class="link"><span class="wire"><i></i></span></div>
+        <div class="node"><span class="nlab">방향 계수</span><span class="nval" id="hW">—</span><span class="nsub">확률에서 0.5를 빼고 두 배</span></div>
+        <div class="link">×</div>
+        <div class="node"><span class="nlab">변동 폭</span><span class="nval" id="hMag">—</span><span class="nsub">부호 없음</span></div>
+        <div class="link">=</div>
+        <div class="node out"><span class="nlab">예상 변화율</span><span class="nval amb" id="hRet">—</span><span class="nsub">두 값의 곱</span></div>
+      </div>
+      <p class="note" style="margin-top:12px" id="decompNote"></p>
+    </section>
+
+    <section class="card s5" id="logPanel" style="display:none">
+      <div class="chead">
+        <span class="ctitle">예측 이력</span>
+        <span class="cmeta" id="logMeta"></span>
+      </div>
+      <table>
+        <thead><tr><th>시각</th><th>예측</th><th>실제</th><th>오차</th></tr></thead>
+        <tbody id="logBody"></tbody>
+      </table>
+      <p class="note" style="margin-top:11px" id="logSummary"></p>
+      <div style="margin-top:12px"><button class="btn quiet" id="clearLog">이력 삭제</button></div>
+    </section>
+
+    <section class="card s8" id="chartPanel" style="display:none">
+      <div class="chead">
+        <span class="ctitle">가격 추이 · 예측 구간</span>
+        <span class="cmeta">그래프를 짚으면 그때 값이 나온다</span>
+      </div>
+      <canvas id="chart" height="320"></canvas>
+      <p class="note" style="margin-top:10px">흰 선은 지금까지 실제로 지나온 가격이다. 오른쪽 끝에 세워 둔 막대가 한 시간 뒤 가격이 있을 만한 자리다.
+      진한 칸에 들어올 일이 열 번 중 일곱 번쯤, 연한 칸까지 넓히면 열 번 중 아홉 번을 넘는다.
+      노란 가로선이 이 프로그램이 찍은 값이고, 점선은 그냥 지금 가격이다.
+      두 선이 거의 붙어 있는데 막대만 길다면, 찍은 값이 빗나가는 폭 안에 파묻혀 있다는 뜻이다.</p>
+    </section>
+
+    <section class="card s4" id="uncPanel" style="display:none">
+      <div class="chead"><span class="ctitle">오차 범위</span></div>
+      <span class="lab">68% 구간 · 열 번 중 일곱 번</span>
+      <div class="val" id="band1" style="font-size:15px">—</div>
+      <div style="margin-top:14px">
+        <div class="kv"><span>1시간 오차 폭</span><b id="uSigma">—</b></div>
+        <div class="kv"><span>예측 대 오차 비율</span><b id="snr">—</b></div>
+      </div>
+      <div class="meter"><i id="snrMeter"></i></div>
+      <p class="note" style="margin-top:10px" id="snrText"></p>
+    </section>
+
+    <section class="card s12" id="valPanel" style="display:none">
+      <div class="chead">
+        <span class="ctitle">검증 성적</span>
+        <span class="cmeta" id="valMeta"></span>
+      </div>
+      <div class="kpis wide">
+        <div class="kpi"><span class="k">방향 적중</span><span class="v" id="mHit">—</span><span class="n">모든 시간을 다 예측했을 때</span></div>
+        <div class="kpi"><span class="k">기준 적중</span><span class="v" id="mUp">—</span><span class="n">매번 한쪽으로만 찍기</span></div>
+        <div class="kpi"><span class="k">초과 적중</span><span class="v" id="mEdge">—</span><span class="n">찍기보다 얼마나 나은가</span></div>
+        <div class="kpi"><span class="k">오차 개선</span><span class="v" id="mImp">—</span><span class="n">예측을 안 했을 때와 비교</span></div>
+        <div class="kpi"><span class="k">상위 신호 적중</span><span class="v" id="mTop">—</span><span class="n" id="mTopNote">가장 센 10퍼센트</span></div>
+        <div class="kpi"><span class="k">오차 폭</span><span class="v" id="mSigma">—</span><span class="n">한 시간 동안의 변화율</span></div>
+      </div>
+      <div class="tiers">
+        <span class="lab">신호 강도별 성적</span>
+        <div id="tierBars"></div>
+      </div>
+      <p class="note" style="margin-top:12px" id="verdict"></p>
+    </section>
+
+
+    <section class="s12" style="margin-top:6px">
+      <span class="lab" style="margin-bottom:9px">방법론</span>
+
+      <details open>
+        <summary>방향 우선 구조</summary>
+        <div class="body">
+          <p>예전에는 계산기가 둘이었다. 하나는 오를지 내릴지를 맞히고, 다른 하나는 가격을 맞혔다.
+          서로 상의를 안 하니까 한쪽은 오른다고 하는데 다른 쪽은 값이 내려간다고 하는 일이 생겼다.
+          한 사람이 왼쪽으로 가자면서 오른쪽으로 걸어가는 꼴이다.</p>
+          <p><strong>그래서 순서를 정해 줬다.</strong> 먼저 방향 담당이 오를 확률을 말한다. 폭 담당은 방향에는 입을 대지 않고,
+          한 시간 동안 얼마나 크게 움직일지 그 크기만 말한다. 그다음 둘을 곱한다.
+          확률에서 0.5를 빼고 두 배 하면 방향 점수가 나오는데, 확률이 반반이면 이 점수가 0이 된다.
+          0을 곱하면 무엇을 곱해도 0이니까 예상 가격은 지금 가격과 똑같아진다.
+          확률이 오른다는 쪽이면 점수가 0보다 크고, 폭은 항상 0보다 크니까 곱한 값도 반드시 0보다 크다.
+          그래서 확률과 가격이 서로 반대로 말할 방법이 아예 없어졌다.</p>
+          <p><strong>이건 꼼수가 아니다.</strong> 오를 때와 내릴 때 움직이는 크기가 비슷하다고 보면,
+          한 시간 뒤 변화율의 평균은 원래 이 곱셈으로 나온다. 부호를 억지로 맞추려고 끼워 넣은 규칙이 아니라,
+          확률과 크기를 따로 구했을 때 저절로 나오는 식이다.
+          대신 오를 때와 내릴 때 크기가 다르다는 정보는 버렸다. 한 시간짜리 기록으로는 그 차이를 믿을 만하게 잴 수 없어서다.</p>
+          <p><strong>고를 때 보는 것도 방향 하나다.</strong> 여러 방법 중에 무엇을 쓸지 정할 때 방향을 얼마나 맞혔는지만 본다.
+          가격 오차는 보지 않는다. 가격이 방향에 매달려 있으니 방향이 좋아지면 가격도 따라 좋아지고,
+          두 가지를 같이 보면 어느 쪽도 제대로 좋아지지 않기 때문이다.</p>
+        </div>
+      </details>
+
+      <details>
+        <summary>가격을 직접 맞히지 않는 이유</summary>
+        <div class="body">
+          <p>한 시간 뒤 가격은 지금 가격과 거의 같다. 그래서 가격을 맞혀 보라고 시키면 계산기는 꾀를 부린다.
+          지금 가격을 그대로 베껴 쓰고는 백 점에 가까운 성적표를 받아 온다.
+          잘 맞힌 게 아니라 문제를 잘못 낸 것이다. 그래서 가격 대신 몇 퍼센트 오르내릴지를 맞히게 했다.</p>
+        </div>
+      </details>
+
+      <details>
+        <summary>코인별 조정과 검증 분리</summary>
+        <div class="body">
+          <p>코인은 성격이 서로 다르다. 어떤 코인은 바로 직전 한두 시간에 민감하게 반응하고,
+          어떤 코인은 며칠치 흐름이 더 중요하다. 그래서 얼마나 옛날 것까지 볼지, 평균을 몇 시간씩 묶어서 낼지를
+          몇 가지로 만들어 두고 코인마다 따로 시험한다. 그리고 그중에서 잘 나온 몇 가지를 골라 답을 평균 낸다.
+          선물 시장 자료를 쓸지 말지도 코인마다 다르게 정한다.</p>
+          <p><strong>고른 다음 그 점수를 자랑하면 반칙이다.</strong> 열 명이 주사위를 굴려서 제일 큰 수가 나온 사람을 뽑고는
+          저 사람은 주사위를 잘 굴린다고 말하는 것과 같다. 그래서 앞쪽 기록으로만 방법을 고르고,
+          뒤쪽 기록은 손도 대지 않고 숨겨 뒀다가 다 정해진 뒤에 딱 한 번 채점한다.
+          그러니 성적표 숫자가 고를 때 봤던 숫자보다 낮은 게 오히려 정상이다.</p>
+          <p><strong>공정하게 시험하는 법.</strong> 사람도 시험 문제를 미리 보면 안 되듯이 계산기도 미래를 보면 안 된다.
+          지난 구간으로만 연습시키고 그다음 구간을 맞히게 한 다음, 이걸 조금씩 앞으로 밀면서 여러 번 되풀이한다.
+          평균 같은 것도 연습 구간 안에서만 구하고, 아직 끝나지 않은 지금 이 시간의 기록은 아예 뺀다.</p>
+        </div>
+      </details>
+
+      <details>
+        <summary>기준선 비교와 과적합 경계</summary>
+        <div class="body">
+          <p>코인은 오랜 기간을 놓고 보면 오른 시간이 조금 더 많았다. 그래서 아무 생각 없이 매번 오른다고만 찍어도
+          50퍼센트를 살짝 넘긴다. 맞힌 비율이 52퍼센트라고 하면 잘한 것 같지만, 그냥 찍기가 51퍼센트였다면
+          진짜 실력은 1퍼센트포인트뿐이다. 성적표의 진짜 실력 칸이 바로 그 차이다.
+          이 칸이 0에 가까우면 이 프로그램은 사실상 아무 일도 하지 않은 것이다.</p>
+          <p>맞힌 비율이 55퍼센트를 넘으면 기뻐하기 전에 의심해야 한다. 실력이 좋아서가 아니라
+          어딘가에서 미래 답안지가 새어 들어왔거나, 시험한 기간이 한쪽으로만 쭉 오른 별난 구간이었을 가능성이 크다.
+          가격 맞히기에서는 좋은 성적을 먼저 의심하는 게 정상이다.</p>
+          <p><strong>신호가 셀 때만 예측한다.</strong> 모든 시간을 다 맞히려 들면 성적이 그냥 찍기 근처에 머문다.
+          시험에서 아는 문제만 풀고 모르는 문제는 넘기면 정답률이 올라가는 것과 같다.
+          그래서 신호가 얼마나 센지를 재서, 센 것만 골랐을 때의 성적을 따로 보여준다. 대신 예측하는 횟수가 줄어든다.</p>
+        </div>
+      </details>
+
+      <details>
+        <summary>예측력 개선 내역</summary>
+        <div class="body">
+          <p><strong>하나만 뽑지 않고 여러 개를 평균 낸다.</strong> 예전에는 여러 방법을 시험해서 성적이 제일 좋은 하나만 썼다.
+          그런데 그 하나는 실력이 좋아서가 아니라 그 구간에서 운이 좋아 1등을 했을 수 있다.
+          운은 다음 구간까지 따라오지 않으니 순위는 쉽게 뒤집힌다. 그래서 위에서 세 가지를 골라 각자가 낸 확률을 평균 낸다.
+          한 방법이 크게 헛발질을 해도 다른 둘이 반대쪽으로 끌어당겨 준다.</p>
+          <p><strong>규제 강도를 덜 흔들리는 잣대로 고른다.</strong> 계산기가 지난 기록을 얼마나 세게 믿을지 정하는 손잡이가 있다.
+          예전에는 맞힌 개수가 제일 많은 자리에 손잡이를 놓았다. 맞았다 틀렸다만 세는 잣대라, 몇 개만 뒤집혀도 손잡이가 확 움직였다.
+          지금은 얼마나 아깝게 틀렸는지까지 재는 잣대로 바꿨고, 성적 차이가 우연이라고 볼 만한 후보들 사이에서는
+          더 겸손한 쪽, 그러니까 지난 기록을 덜 믿는 쪽을 고르게 했다.</p>
+          <p><strong>튀는 값을 잘라 낸다.</strong> 재료 하나가 평소보다 터무니없이 크게 나오는 날이 있다.
+          그대로 두면 그 하루가 답 전체를 끌고 간다. 그래서 재료를 평균과 견준 뒤, 정해진 선 밖으로 나가면 선까지만 인정한다.
+          연습할 때와 실제로 맞힐 때 똑같은 선을 쓴다.</p>
+          <p><strong>비트코인 흐름을 재료로 넣었다.</strong> 비트코인이 아닌 코인은 대체로 비트코인이 움직이고 나서 따라 움직인다.
+          그래서 이더리움, 솔라나, 에이다를 볼 때는 같은 시각까지 비트코인이 어떻게 움직였는지도 재료로 넣는다.
+          이미 끝난 시간의 값만 쓰니까 미래를 훔쳐보는 것이 아니다. 비트코인 자신에게는 이 재료를 넣지 않는다. 자기가 기준이기 때문이다.</p>
+          <p><strong>안 넣기로 한 것도 있다.</strong> 요즘 기록에 더 무게를 주는 방법, 기록을 더 멀리까지 끌어오는 방법도 생각했지만 뺐다.
+          둘 다 새로 정해야 할 손잡이가 하나씩 늘어난다. 손잡이가 늘면 그만큼 우연히 잘 맞는 자리를 골라 버릴 위험도 같이 는다.
+          지금처럼 신호가 약한 판에서는 그 위험이 얻는 것보다 크다.</p>
+          <p><strong>솔직하게 말하면.</strong> 이 네 가지는 모두 답을 덜 흔들리게 만드는 손질이지, 없던 정보를 만들어 내는 것이 아니다.
+          비트코인 흐름만 새 정보이고 나머지는 실수를 줄이는 쪽이다. 만들어 놓고 가짜 데이터로 여러 번 돌려 보니
+          기록이 적을수록 이득이 컸고, 기록이 넉넉하면 차이가 크지 않았다. 한 시간 뒤를 맞히는 일이 어렵다는 사실 자체는 그대로다.</p>
+        </div>
+      </details>
+
+      <details>
+        <summary>적중률과 수익의 차이</summary>
+        <div class="body">
+          <p>실제로 사고팔면 수수료를 내야 하고, 원하는 값에 딱 맞춰 사지 못해서 생기는 손해도 있다.
+          한 번 사고파는 데 대략 0.08퍼센트가 든다. 한 시간 동안 가격이 움직이는 폭이 보통 0.3퍼센트쯤이니,
+          이 비용까지 이기려면 맞힌 비율이 대략 56퍼센트는 되어야 한다. 52퍼센트로는 어림도 없다.</p>
+          <p><strong>일부러 안 넣은 재료도 있다.</strong> 사람들이 얼마나 걸어 놓았는지 보여주는 자료가 도움이 될 것 같았지만,
+          공개된 기록이 30일치뿐이었다. 한 시간마다 세어도 500개밖에 안 되는데, 재료 80가지를 제대로 시험하기에는 너무 적다.
+          제대로 시험할 수 없는 재료는 아예 넣지 않는 편이 낫다.</p>
+        </div>
+      </details>
+    </section>
+
+  </main>
+
+  <p class="foot-note">돈을 넣으라고 만든 것이 아니다. 한 시간 뒤를 어디까지 맞힐 수 있는지 재보는 장치다.</p>
+</div>
+
+<div class="modal" id="modal" hidden>
+  <div class="mback" id="mBack"></div>
+  <div class="mbox" role="dialog" aria-modal="true" aria-labelledby="mTitle">
+    <div class="mhead">
+      <span class="mtitle" id="mTitle">—</span>
+      <span class="msub" id="mSub"></span>
+      <button class="mbtn" id="mClose">닫기</button>
+    </div>
+    <div id="mBody"></div>
+  </div>
+</div>
+
+<script>
+"use strict";
+
+/* ================= 설정 ================= */
+const COINS=[
+  {sym:"BTCUSDT",name:"비트코인",tag:"BTC"},
+  {sym:"ETHUSDT",name:"이더리움",tag:"ETH"},
+  {sym:"SOLUSDT",name:"솔라나",tag:"SOL"},
+  {sym:"ADAUSDT",name:"에이다",tag:"ADA"}
+];
+let SYMBOL="BTCUSDT";
+const INTERVAL="1h";
+const SYM_KEY="fx1h:symbol";
+const logKey=(sym)=>"fx1h:log:"+(sym||SYMBOL);
+const BAR_MS=3600*1000, PAGES=5;
+const EXT_LAGS=4;
+const START_I=168, MIN_BARS=400, BUFFER_S=40;
+/* 코인마다 최적 구조가 다르다. 아래 격자를 코인별로 따로 탐색한다. */
+const CFGS=[
+  {lags:3, wins:[6,24,168],   tag:"짧게"},
+  {lags:6, wins:[6,24,168],   tag:"보통"},
+  {lags:6, wins:[3,12,48],    tag:"단기"},
+  {lags:8, wins:[6,24,72,168],tag:"길게"}
+];
+const CFG_KEY=(sym)=>"fx1h:cfg:"+(sym||SYMBOL);
+const MKT="BTCUSDT";    /* 알트코인의 재료로 쓰는 시장 기준 코인 */
+/* 기준 코인 자신에게는 이더리움을 맞은편 축으로 준다. 자기 자신을 재료로 넣을 수는 없기 때문이다. */
+const ANCHOR=sym=>(sym===MKT?"ETHUSDT":MKT);
+const ANCHOR_NAME=sym=>(sym===MKT?"이더리움":"비트코인");
+
+/* ---- 학습 설정 ---- */
+const HALF_LIFE=2600;   /* 표본 가중치 반감기(봉). 이만큼 지난 봉의 무게가 절반이 된다 */
+const FAMS=["ridge","gbm","mlp"];
+const MLP_SEEDS=3;      /* 방향 신경망은 초기값 운을 지우려고 이만큼 돌려 평균 낸다 */
+const MLP_SEEDS_MAG=1;  /* 폭은 화면에 곱해지는 배율일 뿐이라 한 번이면 된다 */
+const GBM_DIR={obj:"logistic",trees:320,lr:0.03,depth:3,minLeaf:70,l2:8,minGain:0,
+               colsample:0.5,subsample:0.7,bins:48,seed:3,minTrees:80};
+const GBM_MAG={obj:"l2",trees:150,lr:0.05,depth:3,minLeaf:80,l2:8,minGain:0,
+               colsample:0.5,subsample:0.7,bins:48,seed:5,minTrees:50};
+const MLP_DIR={obj:"logistic",hidden:10,epochs:70,batch:128,lr:0.03,wd:5e-3,patience:8,minEpochs:18};
+const MLP_MAG={obj:"l2",hidden:10,epochs:60,batch:128,lr:0.02,wd:5e-3,patience:8,minEpochs:15};
+const WZ=5;             /* 재료를 표준화한 뒤 이 값 밖으로는 자른다 */
+const EPS=1e-12;
+const COVER=[1.0,0.5,0.2,0.1];
+const COVER_NAME=["전체","상위 50%","상위 20%","상위 10%"];
+
+const SPOT_HOSTS=["https://data-api.binance.vision","https://api.binance.com","https://api-gcp.binance.com"];
+const FUT_HOST="https://fapi.binance.com";
+const planFolds=n=>({folds:n>=3000?6:(n>=1200?5:4),minTrain:Math.max(250,Math.floor(n*0.45))});
+/*
+  숨겨진 탭에서는 setTimeout 이 1분에 한 번까지 늦춰진다. 그대로 두면 백그라운드 계산이
+  몇 시간씩 걸린다. 메시지 통로는 그 제한을 받지 않으므로 이쪽을 먼저 쓴다.
+*/
+const yieldUI=(()=>{
+  try{
+    const ch=new MessageChannel(),q=[];
+    ch.port1.onmessage=()=>{const f=q.shift();if(f)f();};
+    return ()=>new Promise(r=>{q.push(r);ch.port2.postMessage(0);});
+  }catch(e){ return ()=>new Promise(r=>setTimeout(r,0)); }
+})();
+
+/* ================= 저장소 =================
+   1순위 window.storage (채팅 안 미리보기)
+   2순위 localStorage    (파일을 직접 열었을 때)
+   3순위 메모리          (둘 다 막힌 경우, 새로고침하면 사라짐)      */
+const mem=new Map();
+let STORE_KIND="이 화면에만";
+const LS=(()=>{
+  try{
+    const k="__t"+Date.now();
+    window.localStorage.setItem(k,"1");
+    window.localStorage.removeItem(k);
+    return window.localStorage;
+  }catch(e){ return null; }
+})();
+if(LS)STORE_KIND="브라우저에 저장";
+if(window.storage)STORE_KIND="앱에 저장";
+
+const store={
+  async get(k){
+    if(window.storage){try{const r=await window.storage.get(k);if(r)return r.value;}catch(e){}}
+    if(LS){try{const v=LS.getItem(k);if(v!==null)return v;}catch(e){}}
+    return mem.get(k)??null;
+  },
+  async set(k,v){
+    mem.set(k,v);
+    if(LS){try{LS.setItem(k,v);}catch(e){}}
+    if(window.storage){try{await window.storage.set(k,v);}catch(e){}}
+  }
+};
+
+/* ================= 데이터 ================= */
+async function getJSON(u){const r=await fetch(u);if(!r.ok)throw new Error("응답 "+r.status);return r.json();}
+async function fetchKlinePages(host,path,sym){
+  let rows=[],end=null;
+  for(let p=0;p<PAGES;p++){
+    let u=host+path+"?symbol="+(sym||SYMBOL)+"&interval="+INTERVAL+"&limit=1000";
+    if(end)u+="&endTime="+end;
+    const c=await getJSON(u);
+    if(!c.length)break;
+    rows=c.concat(rows); end=c[0][0]-1;
+    if(c.length<1000)break;
+  }
+  return rows;
+}
+/* 네 코인의 지금 시세를 한 번에 받아온다. 요약 패널에만 쓰고 계산에는 넣지 않는다. */
+async function fetchTickers(){
+  const q=encodeURIComponent(JSON.stringify(COINS.map(c=>c.sym)));
+  for(const h of SPOT_HOSTS){
+    try{
+      const r=await getJSON(h+"/api/v3/ticker/24hr?symbols="+q);
+      if(!Array.isArray(r)||!r.length)continue;
+      const m={};
+      for(const t of r)m[t.symbol]={c:+t.lastPrice,ch:+t.priceChangePercent};
+      return m;
+    }catch(e){}
+  }
+  return null;
+}
+async function fetchSpot(sym){
+  sym=sym||SYMBOL;
+  let last=null;
+  for(const h of SPOT_HOSTS){
+    try{
+      const rows=await fetchKlinePages(h,"/api/v3/klines",sym);
+      if(rows.length<MIN_BARS)throw new Error("기록 수가 모자란다");
+      const now=Date.now(),seen=new Set(),out=[];
+      for(const k of rows){
+        if(seen.has(k[0]))continue; seen.add(k[0]);
+        if(k[6]>=now)continue;
+        out.push({t:k[0],ct:k[6],o:+k[1],h:+k[2],l:+k[3],c:+k[4],v:+k[5],q:+k[7],n:+k[8],tb:+k[9],tbq:+k[10]});
+      }
+      out.sort((a,b)=>a.t-b.t);
+      return {bars:out,host:h};
+    }catch(e){last=e;}
+  }
+  throw last||new Error("현물 데이터 수집 실패");
+}
+async function fetchDerivatives(bars,sym){
+  sym=sym||SYMBOL;
+  const futRows=await fetchKlinePages(FUT_HOST,"/fapi/v1/klines",sym);
+  const fmap=new Map();
+  for(const k of futRows)fmap.set(k[0],{c:+k[4],v:+k[5],q:+k[7],tb:+k[9],tbq:+k[10]});
+  let fund=[];
+  try{
+    fund=(await getJSON(FUT_HOST+"/fapi/v1/fundingRate?symbol="+sym+"&limit=1000"))
+         .map(f=>({t:+f.fundingTime,r:+f.fundingRate})).sort((a,b)=>a.t-b.t);
+  }catch(e){fund=[];}
+  let p=0,n=0;
+  for(const b of bars){
+    const f=fmap.get(b.t);
+    if(f&&f.c>0&&f.v>0){b.fc=f.c;b.fv=f.v;b.ftb=f.tb;b.fq=f.q;b.ftbq=f.tbq;n++;}
+    while(p<fund.length-1&&fund[p+1].t<=b.ct)p++;
+    if(fund.length&&fund[p].t<=b.ct){
+      b.fr=fund[p].r;
+      b.frPrev=p>0?fund[p-1].r:fund[p].r;
+      b.frCum=fund.slice(Math.max(0,p-2),p+1).reduce((s,x)=>s+x.r,0);
+    }
+  }
+  return {matched:n,funding:fund.length};
+}
+
+/*
+  맞은편 코인. 알트코인은 대체로 비트코인이 움직인 뒤에 따라 움직이고,
+  비트코인 자신은 이더리움과의 벌어짐이 다음 한 시간의 힌트가 된다.
+  같은 시각에 이미 끝난 봉만 쓰므로 미래를 보는 것이 아니다.
+*/
+async function fetchMarket(bars,host,sym){
+  sym=sym||SYMBOL;
+  const anch=ANCHOR(sym);
+  const rows=await fetchKlinePages(host,"/api/v3/klines",anch);
+  const m=new Map();
+  for(const k of rows)m.set(k[0],{c:+k[4],v:+k[5],q:+k[7],tb:+k[9],tbq:+k[10]});
+  let n=0;
+  for(const b of bars){
+    const r=m.get(b.t);
+    if(r&&r.c>0){b.mc=r.c;b.mv=r.v;b.mq=r.q;b.mtb=r.tb;b.mtbq=r.tbq;n++;}
+  }
+  return {matched:n,self:false,anch};
+}
+
+/* ================= 파생변수 ================= */
+const clip=(x,a)=>x>a?a:(x<-a?-a:x);
+
+/* 창을 굴리며 평균과 표준편차를 한 번에 낸다. 창 안에 빈 값이 하나라도 있으면 그 자리는 비워 둔다. */
+function rollStat(a,w){
+  const n=a.length,mean=new Float64Array(n).fill(NaN),sd=new Float64Array(n).fill(NaN);
+  let s=0,q=0,bad=0;
+  for(let i=0;i<n;i++){
+    const x=a[i];
+    if(isFinite(x)){s+=x;q+=x*x;}else bad++;
+    if(i>=w){const y=a[i-w];if(isFinite(y)){s-=y;q-=y*y;}else bad--;}
+    if(i>=w-1&&bad===0){const m=s/w;mean[i]=m;const v=q/w-m*m;sd[i]=v>0?Math.sqrt(v):0;}
+  }
+  return {mean,sd};
+}
+/* 두 계열의 창 안 상관과 회귀 기울기 */
+function rollPair(a,b,w){
+  const n=a.length,beta=new Float64Array(n).fill(NaN),corr=new Float64Array(n).fill(NaN);
+  let sa=0,sb=0,qa=0,qb=0,ab=0,bad=0;
+  for(let i=0;i<n;i++){
+    const x=a[i],y=b[i],ok=isFinite(x)&&isFinite(y);
+    if(ok){sa+=x;sb+=y;qa+=x*x;qb+=y*y;ab+=x*y;}else bad++;
+    if(i>=w){
+      const u=a[i-w],v=b[i-w],ok2=isFinite(u)&&isFinite(v);
+      if(ok2){sa-=u;sb-=v;qa-=u*u;qb-=v*v;ab-=u*v;}else bad--;
+    }
+    if(i>=w-1&&bad===0){
+      const ma=sa/w,mb=sb/w;
+      const va=qa/w-ma*ma,vb=qb/w-mb*mb,cv=ab/w-ma*mb;
+      beta[i]=vb>1e-18?cv/vb:0;
+      corr[i]=(va>1e-18&&vb>1e-18)?cv/Math.sqrt(va*vb):0;
+    }
+  }
+  return {beta,corr};
+}
+function rollHiLo(bars,w){
+  const n=bars.length,hi=new Float64Array(n).fill(NaN),lo=new Float64Array(n).fill(NaN);
+  for(let i=w-1;i<n;i++){
+    let H=-Infinity,L=Infinity;
+    for(let k=i-w+1;k<=i;k++){if(bars[k].h>H)H=bars[k].h;if(bars[k].l<L)L=bars[k].l;}
+    hi[i]=H;lo[i]=L;
+  }
+  return {hi,lo};
+}
+
+/*
+  코인 하나에 대해 창 길이가 고정된 재료를 한 번만 만들어 둔다.
+  후보 조합을 여덟 개씩 시험하면서 같은 계산을 여덟 번 반복하지 않기 위해서다.
+*/
+function derive(bars,useExt,useMkt){
+  const key="__dv"+(useExt?1:0)+(useMkt?1:0);
+  if(bars[key])return bars[key];
+  const N=bars.length;
+  const F=n=>new Float64Array(n).fill(NaN);
+  const logc=F(N),lv=F(N),ret=F(N),dvol=F(N),dtr=F(N),rng=F(N),body=F(N),tkr=F(N),park=F(N),upv=F(N);
+  const ofi=F(N),vwd=F(N),gk=F(N),illiq=F(N);
+  const basis=F(N),dbasis=F(N),lvr=F(N),dlvr=F(N),ftkr=F(N),dftkr=F(N);
+  const mlog=F(N),mret=F(N),mspd=F(N),mofi=F(N);
+
+  for(let i=0;i<N;i++){
+    const b=bars[i];
+    logc[i]=Math.log(b.c); lv[i]=Math.log(b.v+EPS);
+    rng[i]=(b.h-b.l)/b.c; body[i]=(b.c-b.o)/b.o;
+    tkr[i]=b.tb/(b.v+EPS);
+    park[i]=Math.pow(Math.log(b.h/b.l),2);
+    const lhl=Math.log(b.h/b.l), lco=Math.log(b.c/b.o);
+    gk[i]=Math.max(0.5*lhl*lhl-(2*Math.LN2-1)*lco*lco,0);
+    /* 체결대금 기준 매수 쏠림. 수량 기준보다 큰 주문의 방향을 더 잘 담는다. */
+    if(isFinite(b.q)&&b.q>0&&isFinite(b.tbq))ofi[i]=2*b.tbq/b.q-1;
+    else ofi[i]=2*b.tb/(b.v+EPS)-1;
+    /* 봉 안 평균 체결가 대비 종가 위치 */
+    if(isFinite(b.q)&&b.q>0&&b.v>0){const vw=b.q/b.v;if(vw>0)vwd[i]=Math.log(b.c/vw);}
+    else vwd[i]=0;
+    if(i>0){
+      ret[i]=logc[i]-logc[i-1];
+      dvol[i]=lv[i]-lv[i-1];
+      dtr[i]=Math.log(b.n+EPS)-Math.log(bars[i-1].n+EPS);
+      upv[i]=ret[i]>0?1:0;
+      const qq=isFinite(b.q)&&b.q>0?b.q:(b.v*b.c);
+      illiq[i]=Math.log(Math.abs(ret[i])+1e-8)-Math.log(qq+1);
+    }
+    if(useExt&&isFinite(b.fc)&&isFinite(b.fv)&&b.fv>0){
+      basis[i]=Math.log(b.fc)-logc[i];
+      lvr[i]=Math.log(b.fv+EPS)-lv[i];
+      ftkr[i]=(isFinite(b.fq)&&b.fq>0&&isFinite(b.ftbq))?(2*b.ftbq/b.fq-1):(2*b.ftb/(b.fv+EPS)-1);
+    }
+  }
+  for(let i=1;i<N;i++){dbasis[i]=basis[i]-basis[i-1];dlvr[i]=lvr[i]-lvr[i-1];dftkr[i]=ftkr[i]-ftkr[i-1];}
+  if(useMkt){
+    for(let i=0;i<N;i++){
+      const b=bars[i];
+      if(isFinite(b.mc)&&b.mc>0)mlog[i]=Math.log(b.mc);
+      if(isFinite(b.mq)&&b.mq>0&&isFinite(b.mtbq))mofi[i]=2*b.mtbq/b.mq-1;
+      else if(isFinite(b.mv)&&b.mv>0&&isFinite(b.mtb))mofi[i]=2*b.mtb/b.mv-1;
+    }
+    for(let i=1;i<N;i++){mret[i]=mlog[i]-mlog[i-1];mspd[i]=ret[i]-mret[i];}
+  }
+
+  const r6=rollStat(ret,6),r24=rollStat(ret,24),r72=rollStat(ret,72),r168=rollStat(ret,168);
+  const r3=rollStat(ret,3);
+  const u6=rollStat(upv,6),u24=rollStat(upv,24);
+  const g24=rollStat(gk,24);
+  const il168=rollStat(illiq,168);
+  const of24=rollStat(ofi,24);
+  const h6=rollHiLo(bars,6),h24=rollHiLo(bars,24),h72=rollHiLo(bars,72);
+  const b24=useExt?rollStat(basis,24):null, b72=useExt?rollStat(basis,72):null;
+  const m24=useMkt?rollStat(mret,24):null, m6=useMkt?rollStat(mret,6):null, m72=useMkt?rollStat(mret,72):null;
+  const pr24=useMkt?rollPair(ret,mret,24):null, pr72=useMkt?rollPair(ret,mret,72):null;
+
+  const D={logc,lv,ret,dvol,dtr,rng,body,tkr,park,upv,ofi,vwd,gk,illiq,
+           basis,dbasis,lvr,dlvr,ftkr,dftkr,mlog,mret,mspd,mofi,
+           r3,r6,r24,r72,r168,u6,u24,g24,il168,of24,h6,h24,h72,b24,b72,m24,m6,m72,pr24,pr72};
+  try{Object.defineProperty(bars,key,{value:D,enumerable:false,configurable:true});}catch(e){}
+  return D;
+}
+
+/* 자리 순서는 featNames 와 한 글자도 어긋나면 안 된다. */
+const LAG_SRC=["ret","dvol","dtr","rng","body","tkr","park","ofi","vwd"];
+const EXT_SRC=["dbasis","dlvr","dftkr"];
+
+function buildDesign(bars,useExt,cfg,useMkt){
+  const N_LAGS=cfg.lags, WINS=cfg.wins, N=bars.length;
+  const D=derive(bars,useExt,useMkt);
+  const {ret,lv,ofi,gk,illiq,mret,mspd}=D;
+
+  /* 창 길이가 조합마다 달라지는 재료만 여기서 만든다 */
+  const winStat=WINS.map(w=>({w,r:rollStat(ret,w),l:rollStat(lv,w),f:rollStat(ofi,w)}));
+
+  const lagArr=LAG_SRC.map(k=>D[k]);
+  const extArr=EXT_SRC.map(k=>D[k]);
+  const rows=[],meta=[];
+
+  for(let i=START_I;i<N;i++){
+    const f=[]; let bad=false;
+
+    for(let L=0;L<N_LAGS&&!bad;L++)
+      for(const s of lagArr){const x=s[i-L];if(!isFinite(x)){bad=true;break;}f.push(x);}
+    if(bad)continue;
+
+    const vol24=D.r24.sd[i];
+    if(!(vol24>0))continue;
+
+    for(const ws of winStat){
+      const sd=ws.r.sd[i], mo=ws.r.mean[i]*ws.w;
+      const lm=ws.l.mean[i], lsd=ws.l.sd[i];
+      const z=(lv[i]-lm)/(lsd+EPS);
+      const fs=ws.f.mean[i];
+      if(![sd,mo,z,fs].every(isFinite)){bad=true;break;}
+      f.push(sd,mo,z,fs);
+    }
+    if(bad)continue;
+
+    const up6=D.u6.mean[i], up24=D.u24.mean[i];
+    const pos24=(bars[i].c-D.h24.lo[i])/(D.h24.hi[i]-D.h24.lo[i]+EPS);
+    const pos6=(bars[i].c-D.h6.lo[i])/(D.h6.hi[i]-D.h6.lo[i]+EPS);
+    const pos72=(bars[i].c-D.h72.lo[i])/(D.h72.hi[i]-D.h72.lo[i]+EPS);
+    let streak=0;
+    for(let k=i;k>i-8;k--){if(Math.sign(ret[k])!==Math.sign(ret[i]))break;streak++;}
+    const zret=clip(ret[i]/vol24,4);
+    const rev=-Math.sign(ret[i])*Math.min(Math.abs(ret[i])/vol24,4);
+    const zm3=clip(D.r3.mean[i]*3/(vol24*Math.sqrt(3)+EPS),4);
+    const zm6=clip(D.r6.mean[i]*6/(vol24*Math.sqrt(6)+EPS),4);
+    const zm24=clip(D.r24.mean[i]*24/(vol24*Math.sqrt(24)+EPS),4);
+    const volR=clip(D.r6.sd[i]/(D.r72.sd[i]+EPS),6);
+    const gkR=clip(gk[i]/(D.g24.mean[i]+EPS),8);
+    const ilZ=clip((illiq[i]-D.il168.mean[i])/(D.il168.sd[i]+EPS),5);
+    const of24=D.of24.mean[i];
+    const dirF=[up6,up24,pos24,pos6,pos72,Math.sign(ret[i])*streak/8,
+                zret,rev,zm3,zm6,zm24,volR,gkR,ilZ,of24];
+    if(!dirF.every(isFinite))continue;
+    f.push(...dirF);
+
+    const d=new Date(bars[i].t), hh=d.getUTCHours(), dw=d.getUTCDay();
+    f.push(Math.sin(2*Math.PI*hh/24),Math.cos(2*Math.PI*hh/24),
+           Math.sin(2*Math.PI*dw/7),Math.cos(2*Math.PI*dw/7));
+
+    if(useExt){
+      for(let L=0;L<EXT_LAGS&&!bad;L++)
+        for(const s of extArr){const x=s[i-L];if(!isFinite(x)){bad=true;break;}f.push(x);}
+      if(bad)continue;
+      const b=bars[i], bs=D.basis;
+      /* 다음 펀딩 정산까지 남은 시간. 여덟 시간마다 돌아오므로 원 위의 각도로 넣는다. */
+      const h2n=(8-((b.ct/3600000+1)%8))%8;
+      const vals=[bs[i],
+                  (bs[i]-D.b24.mean[i])/(D.b24.sd[i]+EPS),
+                  (bs[i]-D.b72.mean[i])/(D.b72.sd[i]+EPS),
+                  D.lvr[i],D.ftkr[i],
+                  isFinite(b.fr)?b.fr:NaN,
+                  isFinite(b.fr)&&isFinite(b.frPrev)?b.fr-b.frPrev:NaN,
+                  isFinite(b.frCum)?b.frCum:NaN,
+                  Math.sin(2*Math.PI*h2n/8),Math.cos(2*Math.PI*h2n/8)];
+      if(!vals.every(isFinite))continue;
+      f.push(...vals);
+    }
+
+    if(useMkt){
+      for(let L=0;L<EXT_LAGS&&!bad;L++){
+        const x=mret[i-L];if(!isFinite(x)){bad=true;break;}
+        f.push(x);
+      }
+      if(bad)continue;
+      const msd=D.m24.sd[i], mmo=D.m24.mean[i]*24;
+      const beta=D.pr24.beta[i];
+      const resid=(D.r24.mean[i]*24-beta*mmo)/(vol24*Math.sqrt(24)+EPS);
+      const mv=[mspd[i],mspd[i-1],msd,
+                clip(mmo/(msd*Math.sqrt(24)+EPS),4),
+                clip(mret[i]/(msd+EPS),4),
+                D.mofi[i],
+                clip(D.m6.sd[i]/(D.m72.sd[i]+EPS),6),
+                clip(resid,4),
+                D.pr72.corr[i]];
+      if(!mv.every(isFinite))continue;
+      f.push(...mv);
+    }
+
+    if(!f.every(isFinite))continue;
+    rows.push(f);
+    meta.push({i,close:bars[i].c,t:bars[i].t,vol:vol24,
+               y:i+1<N?Math.log(bars[i+1].c)-D.logc[i]:NaN});
+  }
+  return {rows,meta,p:rows.length?rows[0].length:0};
+}
+
+/* ================= 표본 가중치 =================
+   최근 구간을 더 무겁게 본다. 한 시간 뒤 방향을 만드는 규칙은 몇 달 단위로 바뀌기 때문이다.
+   방향 모델에는 거의 움직이지 않은 봉의 무게를 덜어 준다. 그런 봉의 부호는 대부분 잡음이라
+   그대로 세면 배울 것이 없는 자리에 학습이 끌려간다. 폭 모델에는 이 조정을 쓰지 않는다.
+   폭의 분포 자체를 비틀어 평균이 위로 밀리기 때문이다. */
+function sampleW(lo,hi,yRaw,vol,halfLife,useAmp){
+  const w=new Float64Array(hi);
+  const k=Math.log(2)/halfLife;
+  for(let i=lo;i<hi;i++){
+    const rec=Math.exp(-k*(hi-1-i));
+    if(!useAmp){w[i]=rec;continue;}
+    const m=Math.abs(yRaw[i])/(vol[i]+EPS);
+    w[i]=rec*Math.min(1.8,Math.max(0.55,0.5+0.65*Math.min(m,2)));
+  }
+  return w;
+}
+
+/* ================= 릿지: 그램 행렬 공유 ================= */
+function colStats(X,lo,hi,w){
+  const p=X[0].length;
+  const mu=new Float64Array(p),sd=new Float64Array(p);
+  let sw=0;for(let i=lo;i<hi;i++)sw+=w[i];
+  for(let j=0;j<p;j++){let s=0;for(let i=lo;i<hi;i++)s+=w[i]*X[i][j];mu[j]=s/sw;}
+  for(let j=0;j<p;j++){let q=0;for(let i=lo;i<hi;i++){const d=X[i][j]-mu[j];q+=w[i]*d*d;}sd[j]=Math.sqrt(q/sw)||1;}
+  return {mu,sd,sw};
+}
+function gramMulti(X,Ys,lo,hi,mu,sd,ymu,w){
+  const p=X[0].length,K=Ys.length;
+  const G=[];for(let j=0;j<p;j++)G.push(new Float64Array(p));
+  const C=[];for(let k=0;k<K;k++)C.push(new Float64Array(p));
+  const z=new Float64Array(p);
+  for(let i=lo;i<hi;i++){
+    const row=X[i],wi=w[i];
+    for(let j=0;j<p;j++){const t=(row[j]-mu[j])/sd[j];z[j]=t>WZ?WZ:(t<-WZ?-WZ:t);}
+    for(let k=0;k<K;k++){const yc=Ys[k][i]-ymu[k],Ck=C[k];for(let j=0;j<p;j++)Ck[j]+=wi*z[j]*yc;}
+    for(let j=0;j<p;j++){const zj=wi*z[j],Gj=G[j];for(let q=j;q<p;q++)Gj[q]+=zj*z[q];}
+  }
+  for(let j=0;j<p;j++)for(let k=0;k<j;k++)G[j][k]=G[k][j];
+  return {G,C};
+}
+function solveRidge(G,c,lam){
+  const p=c.length,M=[];
+  for(let i=0;i<p;i++){
+    const r=new Float64Array(p+1);
+    for(let j=0;j<p;j++)r[j]=G[i][j];
+    r[i]+=lam;r[p]=c[i];M.push(r);
+  }
+  for(let col=0;col<p;col++){
+    let piv=col;
+    for(let r=col+1;r<p;r++)if(Math.abs(M[r][col])>Math.abs(M[piv][col]))piv=r;
+    const t=M[col];M[col]=M[piv];M[piv]=t;
+    const pv=M[col][col];
+    if(Math.abs(pv)<1e-10)continue;
+    for(let r=0;r<p;r++){
+      if(r===col)continue;
+      const f=M[r][col]/pv; if(f===0)continue;
+      for(let k=col;k<=p;k++)M[r][k]-=f*M[col][k];
+    }
+  }
+  const w=new Float64Array(p);
+  for(let i=0;i<p;i++)w[i]=M[i][p]/(M[i][i]||1e-10);
+  return w;
+}
+/* 학습할 때와 예측할 때 똑같이 자른다. 한 봉이 터무니없이 튀어도 답을 통째로 끌고 가지 못하게 막는다. */
+const zClip=(row,mu,sd,out)=>{
+  for(let j=0;j<row.length;j++){const t=(row[j]-mu[j])/sd[j];out[j]=t>WZ?WZ:(t<-WZ?-WZ:t);}
+  return out;
+};
+const scoreOf=(w,mu,sd,ymu,row)=>{
+  let s=ymu;
+  for(let j=0;j<row.length;j++){const t=(row[j]-mu[j])/sd[j];s+=w[j]*(t>WZ?WZ:(t<-WZ?-WZ:t));}
+  return s;
+};
+const ALPHAS=[1e-3,1e-2,3e-2,0.1,0.3,1,3,10,30,100,300];
+
+/*
+  규제 강도 고르기. 부호 y 를 그대로 맞히는 제곱오차로 잰다. 적중률은 맞았다 틀렸다만
+  세기 때문에 표본이 조금만 흔들려도 답이 통째로 바뀐다. 제곱오차는 얼마나 아깝게
+  틀렸는지까지 세므로 훨씬 덜 흔들린다. 게다가 제일 좋은 값 하나를 그냥 집지 않고
+  그 값의 표준오차 하나 안에 드는 것 중에서 가장 센 규제를 집는다.
+*/
+function pickAlpha(st){
+  let b=0;
+  for(let i=1;i<st.length;i++)if(st[i].m<st[b].m)b=i;
+  const thr=st[b].m+st[b].se;
+  for(let i=st.length-1;i>b;i--)if(st[i].m<=thr)return st[i].a;
+  return st[b].a;
+}
+
+/* ================= 확률 보정 ================= */
+function fitPlatt(scores,ups,w){
+  let a=1,b=0;
+  for(let it=0;it<40;it++){
+    let g0=0,g1=0,h00=0,h01=0,h11=0;
+    for(let i=0;i<scores.length;i++){
+      const wi=w?w[i]:1;
+      const s=scores[i],z=a*s+b,p=1/(1+Math.exp(-z)),e=wi*(p-(ups[i]?1:0)),u=wi*p*(1-p);
+      g0+=e*s;g1+=e;h00+=u*s*s;h01+=u*s;h11+=u;
+    }
+    h00+=1e-6;h11+=1e-6;
+    const det=h00*h11-h01*h01;
+    if(Math.abs(det)<1e-14)break;
+    const da=(h11*g0-h01*g1)/det, db=(-h01*g0+h00*g1)/det;
+    a-=da;b-=db;
+    if(Math.abs(da)+Math.abs(db)<1e-10)break;
+  }
+  if(!isFinite(a)||!isFinite(b))return {a:0,b:0};
+  return {a,b};
+}
+const platt=(c,s)=>1/(1+Math.exp(-(c.a*s+c.b)));
+function quantile(arr,q){
+  const a=arr.slice().sort((x,y)=>x-y);
+  return a[Math.min(a.length-1,Math.max(0,Math.floor(q*(a.length-1))))];
+}
+
+/* ================= 그래디언트 부스팅 =================
+   지표를 분위수로 잘라 칸에 넣고, 칸 단위 히스토그램으로 갈림을 찾는다.
+   나무 하나의 깊이를 셋으로 묶어 두었다. 한 시간 뒤 방향에 남아 있는 정보는
+   기껏해야 재료 두세 개가 겹치는 자리라서, 더 깊게 파면 잡음을 외우기만 한다. */
+function quantEdges(X,lo,hi,j,nb){
+  const v=[];
+  for(let i=lo;i<hi;i++){const x=X[i][j];if(isFinite(x))v.push(x);}
+  v.sort((a,b)=>a-b);
+  const e=[];
+  if(!v.length)return e;
+  for(let k=1;k<nb;k++){
+    const q=v[Math.min(v.length-1,Math.floor(k/nb*v.length))];
+    if(!e.length||q>e[e.length-1])e.push(q);
+  }
+  return e;
+}
+function binOf(e,x){
+  if(!isFinite(x))return 0;
+  let lo=0,hi=e.length;
+  while(lo<hi){const m=(lo+hi)>>1;if(x>e[m])lo=m+1;else hi=m;}
+  return lo;
+}
+function binRow(edges,row){
+  const p=row.length,b=new Uint8Array(p);
+  for(let j=0;j<p;j++)b[j]=binOf(edges[j],row[j]);
+  return b;
+}
+function rngOf(seed){let s=(seed>>>0)||1;return ()=>{s^=s<<13;s>>>=0;s^=s>>>17;s^=s<<5;s>>>=0;return s/4294967296;};}
+
+function growTree(B,p,nb,pos,cnt,g,h,opt,feats,hg,hh,hc){
+  const F=[],T=[],L=[],R=[],V=[];
+  const push=()=>{F.push(-1);T.push(0);L.push(-1);R.push(-1);V.push(0);return F.length-1;};
+  push();
+  const stack=[{s:0,e:cnt,d:0,id:0}];
+  while(stack.length){
+    const nd=stack.pop();
+    let G=0,H=0;
+    for(let a=nd.s;a<nd.e;a++){const i=pos[a];G+=g[i];H+=h[i];}
+    V[nd.id]=-G/(H+opt.l2);
+    if(nd.d>=opt.depth||nd.e-nd.s<2*opt.minLeaf)continue;
+    hg.fill(0);hh.fill(0);hc.fill(0);
+    for(let a=nd.s;a<nd.e;a++){
+      const i=pos[a],off=i*p,gi=g[i],hi=h[i];
+      for(let f=0;f<feats.length;f++){
+        const j=feats[f],k=j*nb+B[off+j];
+        hg[k]+=gi;hh[k]+=hi;hc[k]++;
+      }
+    }
+    const parent=G*G/(H+opt.l2), tot=nd.e-nd.s;
+    let bg=opt.minGain,bj=-1,bt=-1;
+    for(let f=0;f<feats.length;f++){
+      const j=feats[f];let gl=0,hl=0,cl=0;
+      for(let b=0;b<nb-1;b++){
+        const k=j*nb+b;gl+=hg[k];hl+=hh[k];cl+=hc[k];
+        if(cl<opt.minLeaf)continue;
+        if(tot-cl<opt.minLeaf)break;
+        const gr=G-gl,hr=H-hl;
+        const gain=gl*gl/(hl+opt.l2)+gr*gr/(hr+opt.l2)-parent;
+        if(gain>bg){bg=gain;bj=j;bt=b;}
+      }
+    }
+    if(bj<0)continue;
+    let a=nd.s,b2=nd.e-1;
+    while(a<=b2){
+      if(B[pos[a]*p+bj]<=bt)a++;
+      else{const t=pos[a];pos[a]=pos[b2];pos[b2]=t;b2--;}
+    }
+    const mid=a;
+    if(mid<=nd.s||mid>=nd.e)continue;
+    const li=push(),ri=push();
+    F[nd.id]=bj;T[nd.id]=bt;L[nd.id]=li;R[nd.id]=ri;
+    stack.push({s:nd.s,e:mid,d:nd.d+1,id:li});
+    stack.push({s:mid,e:nd.e,d:nd.d+1,id:ri});
+  }
+  for(let i=0;i<V.length;i++)V[i]*=opt.lr;
+  return {f:Int16Array.from(F),t:Int16Array.from(T),l:Int32Array.from(L),r:Int32Array.from(R),v:Float64Array.from(V)};
+}
+function treeVal(tr,b){
+  let i=0;
+  while(tr.f[i]>=0)i=(b[tr.f[i]]<=tr.t[i])?tr.l[i]:tr.r[i];
+  return tr.v[i];
+}
+/* 경로 분해. 노드를 내려가며 값이 변한 몫을 그 갈림에 쓴 지표에 준다. 몫을 다 더하면 예측값이 된다. */
+function treeAttr(tr,b,out){
+  let i=0;
+  while(tr.f[i]>=0){
+    const nx=(b[tr.f[i]]<=tr.t[i])?tr.l[i]:tr.r[i];
+    out[tr.f[i]]+=tr.v[nx]-tr.v[i];
+    i=nx;
+  }
+}
+async function fitGBM(X,y,w,lo,hi,opt){
+  const p=X[0].length,nb=opt.bins,n=hi-lo;
+  const edges=[];
+  for(let j=0;j<p;j++)edges.push(quantEdges(X,lo,hi,j,nb));
+  const B=new Uint8Array(n*p);
+  for(let a=0;a<n;a++){
+    const row=X[lo+a],off=a*p;
+    for(let j=0;j<p;j++)B[off+j]=binOf(edges[j],row[j]);
+  }
+  const yy=new Float64Array(n),ww=new Float64Array(n);
+  let sw=0,sy=0;
+  for(let a=0;a<n;a++){yy[a]=y[lo+a];ww[a]=w[lo+a];sw+=ww[a];sy+=ww[a]*yy[a];}
+  const mean=sy/sw;
+  const logit=opt.obj==="logistic";
+  const F0=logit?Math.log(Math.min(0.99,Math.max(0.01,(mean+1)/2))/(1-Math.min(0.99,Math.max(0.01,(mean+1)/2)))):mean;
+
+  const cut=Math.floor(n*0.82), useES=(n-cut)>=150, trN=useES?cut:n;
+  const Fs=new Float64Array(n).fill(F0);
+  const g=new Float64Array(n),h=new Float64Array(n);
+  const hg=new Float64Array(p*nb),hh=new Float64Array(p*nb),hc=new Int32Array(p*nb);
+  const rand=rngOf(opt.seed||7);
+  const pos=new Int32Array(trN);
+  const trees=[];
+  let best=Infinity,bestT=0,bad=0;
+  const vloss=()=>{
+    let s=0,z=0;
+    for(let a=cut;a<n;a++){
+      if(logit){
+        const pr=1/(1+Math.exp(-Fs[a])),t=yy[a]>0?1:0;
+        s+=ww[a]*(-(t*Math.log(pr+1e-12)+(1-t)*Math.log(1-pr+1e-12)));
+      }else{const e=yy[a]-Fs[a];s+=ww[a]*e*e;}
+      z+=ww[a];
+    }
+    return s/(z+EPS);
+  };
+  for(let t=0;t<opt.trees;t++){
+    for(let a=0;a<trN;a++){
+      if(logit){
+        const pr=1/(1+Math.exp(-Fs[a])),lab=yy[a]>0?1:0;
+        g[a]=ww[a]*(pr-lab);h[a]=ww[a]*Math.max(pr*(1-pr),1e-6);
+      }else{g[a]=ww[a]*(Fs[a]-yy[a]);h[a]=ww[a];}
+    }
+    let cnt=0;
+    for(let a=0;a<trN;a++)if(rand()<opt.subsample)pos[cnt++]=a;
+    if(cnt<opt.minLeaf*3){for(let a=0;a<trN;a++)pos[a]=a;cnt=trN;}
+    const feats=[];
+    for(let j=0;j<p;j++)if(rand()<opt.colsample)feats.push(j);
+    if(feats.length<4){feats.length=0;for(let j=0;j<p;j++)feats.push(j);}
+    const tr=growTree(B,p,nb,pos,cnt,g,h,opt,feats,hg,hh,hc);
+    trees.push(tr);
+    for(let a=0;a<n;a++){
+      const off=a*p;let i=0;
+      while(tr.f[i]>=0)i=(B[off+tr.f[i]]<=tr.t[i])?tr.l[i]:tr.r[i];
+      Fs[a]+=tr.v[i];
+    }
+    if(useES&&(t+1)%10===0){
+      const L=vloss();
+      if(L<best-1e-7){best=L;bestT=t+1;bad=0;}
+      else if(t+1>=opt.minTrees&&++bad>=5)break;
+    }
+    if((t+1)%20===0)await yieldUI();
+  }
+  const keep=useES&&bestT>0?Math.max(bestT,Math.min(opt.minTrees,trees.length)):trees.length;
+  return {edges,F0,trees:trees.slice(0,keep),p};
+}
+function gbmScore(m,row){
+  const b=binRow(m.edges,row);
+  let s=m.F0;
+  for(const tr of m.trees)s+=treeVal(tr,b);
+  return s;
+}
+function gbmAttr(m,row){
+  const b=binRow(m.edges,row),out=new Float64Array(m.p);
+  for(const tr of m.trees)treeAttr(tr,b,out);
+  return out;
+}
+
+/* ================= 얕은 신경망 =================
+   숨은 층 하나에 마디 열 개. 지표 사이의 매끄러운 상호작용만 담을 만큼의 크기다.
+   가중치 감쇠를 세게 걸었다. 재료 백 몇십 개 가운데 쓸모 있는 것이 소수라서,
+   느슨하게 두면 잡음 축에 곧바로 붙어 버린다. 시드를 바꿔 여러 번 학습하고
+   확률 단계에서 평균 낸다. 한 번의 학습은 초기값 운에 따라 결과가 크게 흔들린다. */
+async function fitMLP(X,y,w,lo,hi,mu,sd,opt){
+  const p=X[0].length,H=opt.hidden,n=hi-lo;
+  const Z=new Float64Array(n*p),yy=new Float64Array(n),ww=new Float64Array(n);
+  const tmp=new Float64Array(p);
+  let sw=0,sy=0;
+  for(let a=0;a<n;a++){
+    zClip(X[lo+a],mu,sd,tmp);Z.set(tmp,a*p);
+    yy[a]=y[lo+a];ww[a]=w[lo+a];sw+=ww[a];sy+=ww[a]*yy[a];
+  }
+  const mean=sy/sw, logit=opt.obj==="logistic";
+  const q0=Math.min(0.99,Math.max(0.01,(mean+1)/2));
+  let b2=logit?Math.log(q0/(1-q0)):mean;
+
+  const cut=Math.floor(n*0.82), useES=(n-cut)>=150, trN=useES?cut:n;
+  const rand=rngOf(opt.seed||11);
+  const W1=new Float64Array(H*p),b1=new Float64Array(H),W2=new Float64Array(H);
+  const s1=Math.sqrt(1/Math.max(1,p));
+  for(let k=0;k<H*p;k++)W1[k]=(rand()*2-1)*s1;
+  for(let k=0;k<H;k++)W2[k]=(rand()*2-1)*0.1;
+  const mW1=new Float64Array(H*p),vW1=new Float64Array(H*p);
+  const mb1=new Float64Array(H),vb1=new Float64Array(H);
+  const mW2=new Float64Array(H),vW2=new Float64Array(H);
+  let mb2=0,vb2=0,step=0;
+  const B1=0.9,B2=0.999,e0=1e-8;
+  const act=new Float64Array(H),dh=new Float64Array(H);
+  const gW1=new Float64Array(H*p),gb1=new Float64Array(H),gW2=new Float64Array(H);
+  const idx=new Int32Array(trN);for(let i=0;i<trN;i++)idx[i]=i;
+
+  const fwd=off=>{
+    let s=b2;
+    for(let k=0;k<H;k++){
+      let z=b1[k];const o=k*p;
+      for(let j=0;j<p;j++)z+=W1[o+j]*Z[off+j];
+      act[k]=Math.tanh(z);s+=W2[k]*act[k];
+    }
+    return s;
+  };
+  const vloss=()=>{
+    let s=0,z=0;
+    for(let i=cut;i<n;i++){
+      const f=fwd(i*p);
+      if(logit){
+        const pr=1/(1+Math.exp(-f)),t=yy[i]>0?1:0;
+        s+=ww[i]*(-(t*Math.log(pr+1e-12)+(1-t)*Math.log(1-pr+1e-12)));
+      }else{const e=yy[i]-f;s+=ww[i]*e*e;}
+      z+=ww[i];
+    }
+    return s/(z+EPS);
+  };
+  let best=Infinity,bad=0;
+  let bW1=W1.slice(),bb1=b1.slice(),bW2=W2.slice(),bb2=b2;
+  for(let ep=0;ep<opt.epochs;ep++){
+    for(let i=trN-1;i>0;i--){const j=(rand()*(i+1))|0;const t=idx[i];idx[i]=idx[j];idx[j]=t;}
+    for(let s0=0;s0<trN;s0+=opt.batch){
+      const s1e=Math.min(trN,s0+opt.batch);
+      gW1.fill(0);gb1.fill(0);gW2.fill(0);
+      let gb2=0,nb=0;
+      for(let qi=s0;qi<s1e;qi++){
+        const i=idx[qi],off=i*p,f=fwd(off);
+        let d;
+        if(logit){const pr=1/(1+Math.exp(-f));d=ww[i]*(pr-(yy[i]>0?1:0));}
+        else d=2*ww[i]*(f-yy[i]);
+        gb2+=d;
+        for(let k=0;k<H;k++){gW2[k]+=d*act[k];dh[k]=d*W2[k]*(1-act[k]*act[k]);}
+        for(let k=0;k<H;k++){
+          const dk=dh[k];if(dk===0)continue;
+          const o=k*p;
+          for(let j=0;j<p;j++)gW1[o+j]+=dk*Z[off+j];
+        }
+        for(let k=0;k<H;k++)gb1[k]+=dh[k];
+        nb++;
+      }
+      if(!nb)continue;
+      step++;
+      const bc1=1-Math.pow(B1,step),bc2=1-Math.pow(B2,step),lr=opt.lr;
+      const upd=(par,gr,m,v,i,wd)=>{
+        const gg=gr/nb+wd*par[i];
+        m[i]=B1*m[i]+(1-B1)*gg;v[i]=B2*v[i]+(1-B2)*gg*gg;
+        par[i]-=lr*(m[i]/bc1)/(Math.sqrt(v[i]/bc2)+e0);
+      };
+      for(let k=0;k<H*p;k++)upd(W1,gW1[k],mW1,vW1,k,opt.wd);
+      for(let k=0;k<H;k++)upd(b1,gb1[k],mb1,vb1,k,0);
+      for(let k=0;k<H;k++)upd(W2,gW2[k],mW2,vW2,k,opt.wd);
+      const gg=gb2/nb;
+      mb2=B1*mb2+(1-B1)*gg;vb2=B2*vb2+(1-B2)*gg*gg;
+      b2-=lr*(mb2/bc1)/(Math.sqrt(vb2/bc2)+e0);
+    }
+    if(useES){
+      const L=vloss();
+      if(L<best-1e-7){best=L;bad=0;bW1=W1.slice();bb1=b1.slice();bW2=W2.slice();bb2=b2;}
+      else if(ep+1>=opt.minEpochs&&++bad>=opt.patience)break;
+    }else{bW1=W1.slice();bb1=b1.slice();bW2=W2.slice();bb2=b2;}
+    if((ep+1)%5===0)await yieldUI();
+  }
+  return {W1:bW1,b1:bb1,W2:bW2,b2:bb2,H,p,mu,sd};
+}
+function mlpRaw(m,z){
+  let s=m.b2;
+  for(let k=0;k<m.H;k++){
+    let t=m.b1[k];const o=k*m.p;
+    for(let j=0;j<m.p;j++)t+=m.W1[o+j]*z[j];
+    s+=m.W2[k]*Math.tanh(t);
+  }
+  return s;
+}
+function mlpScore(m,row){
+  const z=new Float64Array(m.p);
+  zClip(row,m.mu,m.sd,z);
+  return mlpRaw(m,z);
+}
+/* 적분 기울기. 원점에서 지금 자리까지 곧게 가며 기울기를 쌓는다. 몫의 합이 예측값에서 원점 값을 뺀 것과 같다. */
+function mlpAttr(m,row,steps){
+  steps=steps||20;
+  const z=new Float64Array(m.p);
+  zClip(row,m.mu,m.sd,z);
+  const out=new Float64Array(m.p),zz=new Float64Array(m.p),a=new Float64Array(m.H);
+  for(let s=1;s<=steps;s++){
+    const t=(s-0.5)/steps;
+    for(let j=0;j<m.p;j++)zz[j]=z[j]*t;
+    for(let k=0;k<m.H;k++){
+      let u=m.b1[k];const o=k*m.p;
+      for(let j=0;j<m.p;j++)u+=m.W1[o+j]*zz[j];
+      a[k]=Math.tanh(u);
+    }
+    for(let k=0;k<m.H;k++){
+      const c=m.W2[k]*(1-a[k]*a[k])/steps,o=k*m.p;
+      if(c===0)continue;
+      for(let j=0;j<m.p;j++)out[j]+=c*m.W1[o+j]*z[j];
+    }
+  }
+  return out;
+}
+
+/* ================= 갈래 하나 =================
+   선형, 부스팅, 신경망 셋 모두 같은 겉모습을 쓴다.
+   방향 원점수, 폭 원점수, 지표별 몫, 확률 보정. 위층은 어떤 갈래인지 몰라도 된다.
+
+   왜 셋을 같이 쓰는가.
+   한 시간 뒤 방향에 남아 있는 정보는 원래 아주 적다. 그래서 어느 한 갈래가
+   다른 갈래를 확실히 이긴다고 말할 만큼의 차이가 표본에서 나오지 않는다.
+   선형은 흔들림이 가장 적고, 부스팅은 재료 두세 개가 겹치는 자리를 잡아내고,
+   신경망은 그 사이를 매끄럽게 잇는다. 셋을 확률 단계에서 섞으면 각자의 헛발질이
+   서로를 지운다. 이 구조에서 얻는 것은 평균 성적이 아니라 최악의 회피다. */
+const FAM_TAG={ridge:"선형",gbm:"부스팅",mlp:"신경망"};
+
+async function fitMember(fam,X,yMag,ySign,yRaw,wD,wM,lo,hi,dirOnly){
+  const n=hi-lo,p=X[0].length;
+  const {mu,sd}=colStats(X,lo,hi,wM);
+  const flat0=new Float64Array(p);
+  const zeroAttr=()=>flat0;
+  let mBar=0,swm=0;
+  for(let i=lo;i<hi;i++){mBar+=wM[i]*yMag[i];swm+=wM[i];}
+  mBar/=swm;
+  let m;
+  if(fam==="ridge"){
+    /* 선형은 두 목표가 같은 그램 행렬을 나눠 쓴다. 그래서 가중치도 최근성 하나로 맞춘다. */
+    let s1=0;
+    for(let i=lo;i<hi;i++)s1+=wM[i]*ySign[i];
+    const ymu=[mBar,s1/swm];
+    const cut=lo+Math.floor(n*0.75), nv=hi-cut;
+    const gi=gramMulti(X,[yMag,ySign],lo,cut,mu,sd,ymu,wM);
+    const stM=[],stD=[];
+    for(const a of ALPHAS){
+      const lam=a*(cut-lo);
+      const wm=solveRidge(gi.G,gi.C[0],lam), wd=solveRidge(gi.G,gi.C[1],lam);
+      let q1=0,q2=0,u1=0,u2=0;
+      for(let i=cut;i<hi;i++){
+        const e1=yMag[i]-scoreOf(wm,mu,sd,ymu[0],X[i]),v1=e1*e1;q1+=v1;u1+=v1*v1;
+        const e2=ySign[i]-scoreOf(wd,mu,sd,ymu[1],X[i]),v2=e2*e2;q2+=v2;u2+=v2*v2;
+      }
+      const m1=q1/nv,m2=q2/nv;
+      stM.push({a,m:m1,se:Math.sqrt(Math.max(u1/nv-m1*m1,0)/nv)});
+      stD.push({a,m:m2,se:Math.sqrt(Math.max(u2/nv-m2*m2,0)/nv)});
+    }
+    const aM=pickAlpha(stM), aD=pickAlpha(stD);
+    const gf=gramMulti(X,[yMag,ySign],lo,hi,mu,sd,ymu,wM);
+    const wMag=solveRidge(gf.G,gf.C[0],aM*n), wDir=solveRidge(gf.G,gf.C[1],aD*n);
+    m={fam,mu,sd,p,floor:0.1*mBar,aD:String(aD),aM:String(aM),
+       rawDir:row=>scoreOf(wDir,mu,sd,ymu[1],row),
+       rawMag:row=>scoreOf(wMag,mu,sd,ymu[0],row),
+       attrDir:row=>{const z=zClip(row,mu,sd,new Float64Array(p)),o=new Float64Array(p);for(let j=0;j<p;j++)o[j]=wDir[j]*z[j];return o;},
+       attrMag:row=>{const z=zClip(row,mu,sd,new Float64Array(p)),o=new Float64Array(p);for(let j=0;j<p;j++)o[j]=wMag[j]*z[j];return o;}};
+  }else if(fam==="gbm"){
+    const gd=await fitGBM(X,ySign,wD,lo,hi,GBM_DIR);
+    const gm=dirOnly?null:await fitGBM(X,yMag,wM,lo,hi,GBM_MAG);
+    m={fam,mu,sd,p,floor:0.1*mBar,aD:"나무 "+gd.trees.length,aM:gm?("나무 "+gm.trees.length):"생략",
+       rawDir:row=>gbmScore(gd,row), rawMag:row=>gm?gbmScore(gm,row):mBar,
+       attrDir:row=>gbmAttr(gd,row), attrMag:row=>gm?gbmAttr(gm,row):zeroAttr()};
+  }else{
+    const nd=[],nm=[];
+    for(let s=0;s<MLP_SEEDS;s++)
+      nd.push(await fitMLP(X,ySign,wD,lo,hi,mu,sd,Object.assign({},MLP_DIR,{seed:17+s*131})));
+    if(!dirOnly)for(let s=0;s<MLP_SEEDS_MAG;s++)
+      nm.push(await fitMLP(X,yMag,wM,lo,hi,mu,sd,Object.assign({},MLP_MAG,{seed:29+s*197})));
+    /* 방향은 확률 단계에서 평균 내고 다시 로그 오즈로 되돌린다. 점수끼리 더하면 눈금이 어긋난다. */
+    const dirAvg=row=>{
+      const z=zClip(row,mu,sd,new Float64Array(p));
+      let q=0;for(const k of nd)q+=1/(1+Math.exp(-mlpRaw(k,z)));
+      q=Math.min(1-1e-9,Math.max(1e-9,q/nd.length));
+      return Math.log(q/(1-q));
+    };
+    m={fam,mu,sd,p,floor:0.1*mBar,aD:"마디 "+MLP_DIR.hidden+"×"+MLP_SEEDS,
+       aM:nm.length?("마디 "+MLP_MAG.hidden):"생략",
+       rawDir:dirAvg,
+       rawMag:row=>{if(!nm.length)return mBar;let q=0;for(const k of nm)q+=mlpScore(k,row);return q/nm.length;},
+       attrDir:row=>{const o=new Float64Array(p);for(const k of nd){const t=mlpAttr(k,row);for(let j=0;j<p;j++)o[j]+=t[j]/nd.length;}return o;},
+       attrMag:row=>{if(!nm.length)return zeroAttr();const o=new Float64Array(p);for(const k of nm){const t=mlpAttr(k,row);for(let j=0;j<p;j++)o[j]+=t[j]/nm.length;}return o;}};
+  }
+  /* 학습 구간 안에서만 확률 보정을 맞춘다. 미래 정보는 들어가지 않는다. */
+  const s=[],u=[],ww=[];
+  for(let i=lo;i<hi;i++){s.push(m.rawDir(X[i]));u.push(yRaw[i]>0);ww.push(wD[i]);}
+  m.cal=fitPlatt(s,u,ww);
+  m.trP=new Array(hi).fill(0.5);
+  for(let i=lo;i<hi;i++)m.trP[i]=platt(m.cal,s[i-lo]);
+  m.tag=FAM_TAG[fam];
+  m.dir={alpha:m.aD}; m.mag={alpha:m.aM,floor:m.floor};
+  await yieldUI();
+  return m;
+}
+const predDir=(m,row)=>m.rawDir(row);
+const predMagRaw=(m,row)=>m.rawMag(row);
+/* 폭은 음수가 될 수 없다. 회귀가 음수를 내면 학습 구간 평균 폭의 10퍼센트로 막는다. */
+const predMag=(m,row)=>Math.max(m.rawMag(row),m.floor);
+const probUp =(m,row)=>platt(m.cal,m.rawDir(row));
+
+/* ================= Walk-forward =================
+   fams 는 쓸 갈래 목록, wts 는 갈래별 무게다. 갈래마다 상승 확률과 폭을 내고
+   확률 단계에서 무게를 실어 평균 낸다. 무게를 주지 않으면 똑같이 나눈다.
+*/
+async function walkForward(X,yRaw,vol,close,fams,wts,onStep,opt){
+  const n=X.length, K=fams.length;
+  const pf=planFolds(n);
+  const folds=(opt&&opt.folds)||pf.folds;
+  const minTrain=(opt&&opt.minTrain)||pf.minTrain;
+  const fs=Math.floor((n-minTrain)/folds);
+  if(fs<15)throw new Error("시험에 쓸 기록이 모자란다");
+  const W=(wts&&wts.length===K)?wts.slice():fams.map(()=>1/K);
+  {let s=0;for(const x of W)s+=x;for(let k=0;k<K;k++)W[k]/=(s||1);}
+
+  const yMag=yRaw.map((v,i)=>Math.abs(v)/(vol[i]+EPS));
+  const ySign=yRaw.map(v=>v>0?1:-1);
+
+  const yt=[],pr=[],ds=[],cl=[],per=fams.map(()=>[]);
+  const cover=COVER.map(()=>[]);
+  for(let k=0;k<folds;k++){
+    if(onStep){onStep(k+1,folds);await yieldUI();}
+    const trEnd=minTrain+k*fs, teEnd=(k===folds-1)?n:trEnd+fs;
+    const wD=sampleW(0,trEnd,yRaw,vol,HALF_LIFE,true);
+    const wM=sampleW(0,trEnd,yRaw,vol,HALF_LIFE,false);
+    const dirOnly=!!(opt&&opt.dirOnly);
+    const ms=[];
+    for(const f of fams)ms.push(await fitMember(f,X,yMag,ySign,yRaw,wD,wM,0,trEnd,dirOnly));
+
+    /*
+      판정 기준선을 0으로 두면 안 된다. 상승 봉이 더 많은 시장에서 점수 0은
+      중립이 아니기 때문이다. 학습 구간에서 보정한 상승 확률이 0.5가 되는
+      지점을 기준선으로 쓴다. 신호 세기도 가격도 모두 이 확률 하나에서 나온다.
+    */
+    const trConf=new Array(trEnd).fill(0);
+    for(let j=0;j<K;j++)for(let i=0;i<trEnd;i++)trConf[i]+=W[j]*ms[j].trP[i];
+    for(let i=0;i<trEnd;i++)trConf[i]=Math.abs(trConf[i]-0.5);
+    const thr=COVER.map(c=>c>=1?-1:quantile(trConf,1-c));
+
+    for(let i=trEnd;i<teEnd;i++){
+      let p=0,mg=0;
+      for(let j=0;j<K;j++){
+        const pj=probUp(ms[j],X[i]);
+        per[j].push({p:pj,y:yRaw[i]});
+        p+=W[j]*pj; mg+=W[j]*predMag(ms[j],X[i]);
+      }
+      const cf=p-0.5;
+      yt.push(yRaw[i]); pr.push((2*p-1)*mg*vol[i]); ds.push(cf); cl.push(close[i]);
+      const abs=Math.abs(cf);
+      for(let c=0;c<COVER.length;c++)if(abs>=thr[c])cover[c].push({s:cf,y:yRaw[i]});
+    }
+  }
+
+  const N=yt.length;
+  let se=0,se0=0,pmae=0,nmae=0,mt=0,mp=0,upCnt=0;
+  for(let i=0;i<N;i++){mt+=yt[i];mp+=pr[i];if(yt[i]>0)upCnt++;}
+  mt/=N;mp/=N;
+  let cv=0,vt=0,vp=0;
+  for(let i=0;i<N;i++){
+    const e=yt[i]-pr[i]; se+=e*e; se0+=yt[i]*yt[i];
+    const pt=cl[i]*Math.exp(yt[i]);
+    pmae+=Math.abs(pt-cl[i]*Math.exp(pr[i])); nmae+=Math.abs(pt-cl[i]);
+    const A=yt[i]-mt,B=pr[i]-mp; cv+=A*B;vt+=A*A;vp+=B*B;
+  }
+  const rmse=Math.sqrt(se/N),rmse0=Math.sqrt(se0/N);
+
+  /*
+    갈래를 고를 때 쓰는 점수. 적중률 차이는 맞았다 틀렸다만 세서 많이 흔들린다.
+    여기서는 확률이 정답에서 얼마나 떨어졌는지를 제곱해서 재고, 아무것도 모를 때
+    낼 수 있는 최선의 고정 확률과 견준다. 0보다 크면 그만큼 더 알아낸 것이다.
+  */
+  const p0=upCnt/N, s0=2*p0-1;
+  let bs=0,bs0=0;
+  for(let i=0;i<N;i++){
+    const sgn=yt[i]>0?1:-1, e=2*ds[i]-sgn, e0=s0-sgn;
+    bs+=e*e; bs0+=e0*e0;
+  }
+  const skill=bs0>0?(1-bs/bs0):0;
+  /* 갈래마다 따로 잰 점수. 다음 단계에서 무게를 정하는 데 쓴다. */
+  const famSkill=per.map(arr=>{
+    if(!arr.length)return 0;
+    let b=0,b0=0,u=0;
+    for(const r of arr)if(r.y>0)u++;
+    const q=u/arr.length, sq=2*q-1;
+    for(const r of arr){const sg=r.y>0?1:-1,e=2*(r.p-0.5)-sg,e0=sq-sg;b+=e*e;b0+=e0*e0;}
+    return b0>0?1-b/b0:0;
+  });
+
+  const tiers=cover.map((arr,ci)=>{
+    if(!arr.length)return {name:COVER_NAME[ci],n:0,hit:NaN,base:NaN,edge:NaN};
+    let h=0,u=0;
+    for(const r of arr){if(Math.sign(r.s)===Math.sign(r.y))h++;if(r.y>0)u++;}
+    const hit=h/arr.length*100, base=Math.max(u,arr.length-u)/arr.length*100;
+    return {name:COVER_NAME[ci],n:arr.length,hit,base,edge:hit-base};
+  });
+
+  return {n:N,folds,rmse,rmse0,imp:(1-rmse/rmse0)*100,skill,famSkill,
+          hit:tiers[0].hit, upBase:Math.max(upCnt,N-upCnt)/N*100, edge:tiers[0].edge,
+          upShare:upCnt/N*100,
+          ic:cv/(Math.sqrt(vt*vp)+EPS), pmae:pmae/N, nmae:nmae/N, sigma:rmse,
+          tiers, cal:fitPlatt(ds,yt.map(v=>v>0)),
+          absQ:{q50:quantile(ds.map(Math.abs),0.5),q80:quantile(ds.map(Math.abs),0.8),q90:quantile(ds.map(Math.abs),0.9)},
+          absList:ds.map(v=>Math.abs(v)), p0,
+          liveCal:null};
+}
+
+/* ================= 표시 ================= */
+const REDUCED=!!(window.matchMedia&&window.matchMedia("(prefers-reduced-motion: reduce)").matches);
+const $=id=>document.getElementById(id);
+const fmtP=x=>{
+  const a=Math.abs(x);
+  const d=a>=1000?2:a>=10?2:a>=1?4:a>=0.01?5:6;
+  return x.toLocaleString("en-US",{minimumFractionDigits:d,maximumFractionDigits:d});
+};
+const fmtAxis=x=>{
+  const a=Math.abs(x);
+  if(a>=1000)return Math.round(x).toLocaleString("en-US");
+  const d=a>=100?1:a>=10?2:a>=1?3:a>=0.01?4:5;
+  return x.toFixed(d);
+};
+const pad=x=>String(x).padStart(2,"0");
+const fmtT=ms=>{const d=new Date(ms);return pad(d.getMonth()+1)+"월 "+pad(d.getDate())+"일 "+pad(d.getHours())+":00";};
+const fmtS=ms=>{const d=new Date(ms);return pad(d.getMonth()+1)+"/"+pad(d.getDate())+" "+pad(d.getHours())+":00";};
+const clamp01=x=>x<0?0:(x>1?1:x);
+
+function setStatus(t,c){
+  $("statusText").textContent=t;
+  $("dot").className="dot"+(c?" "+c:"");
+}
+/* 진행률. 음수를 넣으면 얼마나 남았는지 모르는 상태로 흐른다. */
+function setProgress(f){
+  const box=$("prog"),fill=$("progFill");
+  if(f==null){box.classList.remove("busy");fill.style.width="0%";return;}
+  if(f<0){box.classList.add("busy");fill.style.width="34%";return;}
+  box.classList.remove("busy");fill.style.width=(clamp01(f)*100).toFixed(1)+"%";
+}
+/* 숫자가 이전 값에서 새 값으로 굴러간다. 값이 바뀌었다는 사실 자체가 눈에 띄어야 한다. */
+function animateNum(el,to,fmt){
+  const from=isFinite(el.__v)?el.__v:to;
+  el.__v=to;
+  if(REDUCED||from===to){el.innerHTML=fmt(to);return;}
+  const t0=performance.now(),D=560;
+  const step=t=>{
+    const k=Math.min(1,(t-t0)/D),e=1-Math.pow(1-k,3);
+    el.innerHTML=fmt(from+(to-from)*e);
+    if(k<1)requestAnimationFrame(step);
+  };
+  requestAnimationFrame(step);
+}
+
+/* 게이지. 가로축은 상승 확률 40에서 60까지다.
+   바늘이 지금 확률, 노란 선이 시험 기간의 상승 비율, 점선이 신호 세기 상위 20과 10 경계다. */
+function renderGauge(prob,upShare,q80,q90){
+  const pos=p=>(clamp01((p-40)/20)*100).toFixed(2)+"%";
+  const n=$("gNeedle"),f=$("gFill");
+  n.style.left=pos(prob);
+  n.style.background=prob>=50?"var(--up)":"var(--down)";
+  n.style.boxShadow="0 0 12px 2px "+(prob>=50?"rgba(111,184,148,.5)":"rgba(212,113,95,.5)");
+  const lo=Math.min(prob,50),hi=Math.max(prob,50);
+  f.style.left=pos(lo);
+  f.style.width=(clamp01((hi-lo)/20)*100).toFixed(2)+"%";
+  f.style.background=prob>=50?"rgba(111,184,148,.16)":"rgba(212,113,95,.16)";
+  $("gBase").style.left=pos(upShare);
+  $("gQ80a").style.left=pos(50-q80*100); $("gQ80b").style.left=pos(50+q80*100);
+  $("gQ90a").style.left=pos(50-q90*100); $("gQ90b").style.left=pos(50+q90*100);
+}
+
+/* ---------- 차트 ---------- */
+let CH=null,chRAF=null;
+const ease=k=>1-Math.pow(1-k,3);
+
+function drawChart(bars,pred,sigma){
+  CH={seg:bars.slice(-90),pred,sigma,hx:-1};
+  const cv=$("chart");
+  if(!cv.__bound){
+    cv.__bound=1;
+    const move=e=>{
+      if(!CH)return;
+      const r=cv.getBoundingClientRect();
+      CH.hx=e.clientX-r.left;
+      renderChart(1);
+    };
+    cv.addEventListener("pointermove",move);
+    cv.addEventListener("pointerdown",move);
+    cv.addEventListener("pointerleave",()=>{if(CH){CH.hx=-1;renderChart(1);}});
+    window.addEventListener("resize",()=>{if(CH)renderChart(1);});
+  }
+  if(REDUCED){renderChart(1);return;}
+  if(chRAF)cancelAnimationFrame(chRAF);
+  const t0=performance.now(),D=700;
+  const step=t=>{
+    const k=Math.min(1,(t-t0)/D);
+    renderChart(ease(k));
+    if(k<1)chRAF=requestAnimationFrame(step);
+  };
+  chRAF=requestAnimationFrame(step);
+}
+
+function renderChart(k){
+  const cv=$("chart");
+  if(!CH||!cv.clientWidth)return;
+  const {seg,pred,sigma}=CH;
+  const dpr=window.devicePixelRatio||1,W=cv.clientWidth,H=320;
+  cv.width=W*dpr;cv.height=H*dpr;
+  const g=cv.getContext("2d");
+  g.setTransform(dpr,0,0,dpr,0,0);g.clearRect(0,0,W,H);
+
+  const K=seg.length,last=seg[K-1].c;
+  const hi2=last*Math.exp(pred.ret+2*sigma),lo2=last*Math.exp(pred.ret-2*sigma);
+  let mn=Math.min(lo2,...seg.map(b=>b.l)),mx=Math.max(hi2,...seg.map(b=>b.h));
+  const pdg=(mx-mn)*0.09;mn-=pdg;mx+=pdg;
+  const L=10,R=W-62,T=16,B=H-30,bandX=R+20,VB=42;
+  const x=i=>L+(R-L)*(i/(K-1)), yv=p=>B-(B-T)*((p-mn)/(mx-mn));
+
+  g.font="10px "+"'IBM Plex Mono', monospace";
+  g.textAlign="left";
+  for(let j=0;j<=4;j++){
+    const p=mn+(mx-mn)*j/4,yy=Math.round(yv(p))+.5;
+    g.strokeStyle="rgba(30,43,55,.85)";g.lineWidth=1;
+    g.beginPath();g.moveTo(L,yy);g.lineTo(bandX+13,yy);g.stroke();
+    g.fillStyle="#4A5A69";g.fillText(fmtAxis(p),bandX+19,yy+3);
+  }
+
+  // 거래량. 가격 아래에 얇게 깔아 흐름의 세기를 같이 본다.
+  const vmax=Math.max(...seg.map(b=>b.v))||1;
+  for(let i=0;i<K*k;i++){
+    const h=Math.max(1,(seg[i].v/vmax)*VB);
+    g.fillStyle=seg[i].c>=seg[i].o?"rgba(111,184,148,.16)":"rgba(212,113,95,.16)";
+    g.fillRect(x(i)-1,B-h,2,h);
+  }
+
+  const cut=Math.max(2,Math.floor(K*k));
+  const grad=g.createLinearGradient(0,T,0,B);
+  grad.addColorStop(0,"rgba(220,230,238,.13)");
+  grad.addColorStop(1,"rgba(220,230,238,0)");
+  g.beginPath();g.moveTo(x(0),B);
+  for(let i=0;i<cut;i++)g.lineTo(x(i),yv(seg[i].c));
+  g.lineTo(x(cut-1),B);g.closePath();g.fillStyle=grad;g.fill();
+
+  g.beginPath();
+  for(let i=0;i<cut;i++)i?g.lineTo(x(i),yv(seg[i].c)):g.moveTo(x(i),yv(seg[i].c));
+  g.strokeStyle="#DCE6EE";g.lineWidth=1.5;g.lineJoin="round";g.stroke();
+
+  if(k>=1){
+    g.save();g.globalAlpha=.9;
+    g.beginPath();g.arc(x(K-1),yv(last),2.6,0,7);g.fillStyle="#DCE6EE";g.fill();g.restore();
+  }
+
+  const a=Math.max(0,(k-0.55)/0.45);
+  g.save();g.globalAlpha=a;
+  g.setLineDash([3,4]);g.strokeStyle="rgba(123,141,156,.7)";g.lineWidth=1;
+  g.beginPath();g.moveTo(L,yv(last));g.lineTo(bandX+9,yv(last));g.stroke();g.setLineDash([]);
+
+  const bw=18;
+  g.fillStyle="rgba(90,175,203,.12)";g.fillRect(bandX-bw/2,yv(hi2),bw,yv(lo2)-yv(hi2));
+  const hi1=last*Math.exp(pred.ret+sigma),lo1=last*Math.exp(pred.ret-sigma);
+  g.fillStyle="rgba(90,175,203,.28)";g.fillRect(bandX-bw/2,yv(hi1),bw,yv(lo1)-yv(hi1));
+  const pyy=yv(pred.price);
+  g.setLineDash([2,3]);g.strokeStyle="rgba(226,169,75,.5)";g.lineWidth=1;
+  g.beginPath();g.moveTo(x(K-1),yv(last));g.lineTo(bandX,pyy);g.stroke();g.setLineDash([]);
+  g.strokeStyle="#E2A94B";g.lineWidth=2;
+  g.beginPath();g.moveTo(bandX-bw/2-4,pyy);g.lineTo(bandX+bw/2+4,pyy);g.stroke();
+  g.restore();
+
+  g.fillStyle="#4A5A69";g.font="9.5px 'IBM Plex Mono', monospace";
+  g.textAlign="left";g.fillText(fmtS(seg[0].t),L,B+16);
+  g.textAlign="center";
+  g.fillText(fmtS(seg[Math.floor(K/2)].t),(L+R)/2,B+16);
+  g.fillStyle="#E2A94B";g.fillText("예측",bandX,B+16);
+
+  // 짚은 자리 읽기
+  if(CH.hx>=L-6&&CH.hx<=R+6&&k>=1){
+    const i=Math.max(0,Math.min(K-1,Math.round((CH.hx-L)/(R-L)*(K-1))));
+    const b=seg[i],px=x(i),py=yv(b.c);
+    g.strokeStyle="rgba(90,175,203,.5)";g.lineWidth=1;
+    g.setLineDash([2,3]);g.beginPath();g.moveTo(px+.5,T);g.lineTo(px+.5,B);g.stroke();g.setLineDash([]);
+    g.beginPath();g.arc(px,py,3.4,0,7);g.fillStyle="#5AAFCB";g.fill();
+    const dp=(b.c/last-1)*100;
+    const t1=fmtS(b.t),t2=fmtAxis(b.c)+"  "+(dp>=0?"+":"")+dp.toFixed(2)+"%";
+    g.font="10.5px 'IBM Plex Mono', monospace";
+    const bwid=Math.max(g.measureText(t1).width,g.measureText(t2).width)+16;
+    let bx=px+10; if(bx+bwid>R)bx=px-10-bwid;
+    const by=Math.max(T,Math.min(B-42,py-46));
+    g.fillStyle="rgba(12,18,24,.95)";g.strokeStyle="rgba(90,175,203,.35)";g.lineWidth=1;
+    g.beginPath();g.rect(bx,by,bwid,38);g.fill();g.stroke();
+    g.textAlign="left";
+    g.fillStyle="#7B8D9C";g.fillText(t1,bx+8,by+15);
+    g.fillStyle=dp>=0?"#6FB894":"#D4715F";g.fillText(t2,bx+8,by+30);
+  }
+}
+
+/* ---------- 종합 요약 ----------
+   지금 보고 있는 코인만 방금 계산한 값이다. 나머지는 그 코인을 마지막으로 열었을 때
+   계산해 둔 값을 그대로 보여준다. 네 코인을 매번 다 계산하면 너무 오래 걸리기 때문이다.
+   그래서 언제 계산한 값인지를 칸마다 같이 적는다.                                      */
+let TICK=null,SNAPS={};
+const SNAP_KEY=sym=>"fx1h:snap:"+sym;
+async function loadSnaps(){
+  const out={};
+  for(const c of COINS){
+    const raw=await store.get(SNAP_KEY(c.sym));
+    if(raw){try{const v=JSON.parse(raw);if(v&&isFinite(v.prob))out[c.sym]=v;}catch(e){}}
+  }
+  return out;
+}
+function ageText(ms){
+  if(!isFinite(ms))return "";
+  const d=Date.now()-ms;
+  if(d<60000)return "방금";
+  const m=Math.floor(d/60000);
+  if(m<60)return m+"분 전";
+  const h=Math.floor(m/60);
+  if(h<24)return h+"시간 전";
+  return Math.floor(h/24)+"일 전";
+}
+function renderSummary(busy){
+  const box=$("sumGrid");
+  const any=TICK||Object.keys(SNAPS).length;
+  $("sumPanel").style.display=any?"block":"none";
+  if(!any)return;
+  const nowTarget=Math.ceil(Date.now()/BAR_MS)*BAR_MS;  /* 지금 진행 중인 봉이 끝나는 시각 */
+  box.innerHTML="";
+  for(const c of COINS){
+    const t=TICK&&TICK[c.sym], s=SNAPS[c.sym];
+    const b=document.createElement("button");
+    b.className="scell"+(c.sym===SYMBOL?" on":"");
+    b.disabled=!!busy;
+    let h='<div class="stag"><b>'+c.tag+'</b><i>'+c.name+'</i></div>';
+    h+='<div class="sprice">'+(t?fmtP(t.c):(s?fmtP(s.base):"—"))+'</div>';
+    h+='<div class="schg" style="color:'+(t?(t.ch>=0?"var(--up)":"var(--down)"):"var(--dimmer)")+'">'+
+       (t?((t.ch>=0?"+":"")+t.ch.toFixed(2)+"% · 24시간"):"시세 대기")+'</div>';
+    if(s){
+      const col=s.prob>=50?"var(--up)":"var(--down)";
+      h+='<div class="srow"><span style="color:'+col+'">'+(s.prob>=50?"상승":"하락")+" "+s.prob.toFixed(1)+'%</span>'+
+         '<span style="color:var(--amb)">'+(s.ret>=0?"+":"")+(s.ret*100).toFixed(3)+'%</span></div>';
+      h+='<div class="sage">'+fmtS(s.targetMs)+" 기준 · 신호 "+(s.lvl||"—")+" · "+
+         (s.targetMs+BAR_MS>=nowTarget?"최신":ageText(s.at))+'</div>';
+    }else{
+      h+='<div class="srow"><span style="color:var(--dimmer)">예측 없음</span>'+
+         '<span style="color:var(--dim)">눌러서 계산</span></div>';
+      h+='<div class="sage">아직 한 번도 계산하지 않았다</div>';
+    }
+    b.innerHTML=h;
+    b.addEventListener("click",()=>selectCoin(c.sym));
+    box.appendChild(b);
+  }
+  $("sumMeta").textContent=TICK?"시세는 실시간 · 예측은 각 코인을 마지막으로 연 시점":"예측은 각 코인을 마지막으로 연 시점";
+}
+async function refreshSummary(withTick){
+  SNAPS=await loadSnaps();
+  renderSummary();
+  if(withTick){
+    try{const t=await fetchTickers();if(t){TICK=t;renderSummary();}}catch(e){}
+  }
+}
+
+/* ---------- 신호 세기 구간별 성적 ---------- */
+function renderTiers(tiers){
+  const box=$("tierBars");box.innerHTML="";
+  const fin=tiers.filter(t=>isFinite(t.edge));
+  const mx=Math.max(3,...fin.map(t=>Math.abs(t.edge)));
+  for(const t of tiers){
+    const row=document.createElement("div");row.className="tier";
+    const w=isFinite(t.edge)?Math.min(50,Math.abs(t.edge)/mx*50):0;
+    const col=t.edge>0.5?"var(--up)":(t.edge<-0.5?"var(--down)":"var(--dimmer)");
+    const side=t.edge>=0?"left:50%":"right:50%";
+    row.innerHTML=
+      '<span class="tn">'+t.name+'</span>'+
+      '<span class="tc">'+t.n+'회</span>'+
+      '<div class="tbar"><b></b><i style="'+side+';width:'+w+'%;background:'+col+'"></i></div>'+
+      '<span class="th">'+(isFinite(t.hit)?t.hit.toFixed(1)+"%":"—")+'</span>'+
+      '<span class="te" style="color:'+col+'">'+(isFinite(t.edge)?(t.edge>=0?"+":"")+t.edge.toFixed(1)+"p":"—")+'</span>';
+    box.appendChild(row);
+  }
+}
+/* ================= 세부 연산 팝업 =================
+   화면에 찍히는 숫자 하나하나가 어떤 중간값에서 나왔는지 되짚어 보여준다.
+   계산을 다시 하지 않는다. 예측을 만들 때 지나간 중간값을 그대로 붙잡아 둔 것이다. */
+let DIAG=null;
+
+/* 설계행렬에 넣은 순서 그대로 이름을 만든다. buildDesign 의 push 순서와 짝을 맞춘다. */
+function featNames(cfg,useExt,useMkt,anch){
+  const A=anch||"비트코인";
+  const base=["수익률","거래량 변화","체결 수 변화","고저 폭","몸통","매수 비중",
+              "고저 변동성","체결대금 매수 쏠림","평균가 대비 종가"];
+  const out=[];
+  for(let L=0;L<cfg.lags;L++)for(const s of base)out.push(s+(L?" "+L+"시간 전":""));
+  for(const w of cfg.wins)
+    out.push("변동성 "+w+"시간","누적 수익률 "+w+"시간","거래량 표준화 "+w+"시간","매수 쏠림 누적 "+w+"시간");
+  out.push("상승 봉 비율 6시간","상승 봉 비율 24시간","24시간 내 위치","6시간 내 위치","72시간 내 위치",
+           "같은 방향 연속","표준화 수익률","되돌림",
+           "표준화 모멘텀 3시간","표준화 모멘텀 6시간","표준화 모멘텀 24시간",
+           "단기 대 장기 변동성","봉 변동성 대 평소","체결대금 대비 움직임","매수 쏠림 누적 24시간");
+  out.push("하루 중 시각 사인","하루 중 시각 코사인","요일 사인","요일 코사인");
+  if(useExt){
+    const e=["베이시스 변화","선물 거래량비 변화","선물 매수 쏠림 변화"];
+    for(let L=0;L<EXT_LAGS;L++)for(const s of e)out.push(s+(L?" "+L+"시간 전":""));
+    out.push("베이시스","베이시스 표준화 24시간","베이시스 표준화 72시간","선물 거래량비","선물 매수 쏠림",
+             "펀딩비","펀딩비 변화","펀딩비 누적","펀딩 정산까지 사인","펀딩 정산까지 코사인");
+  }
+  if(useMkt){
+    for(let L=0;L<EXT_LAGS;L++)out.push(A+" 수익률"+(L?" "+L+"시간 전":""));
+    out.push(A+" 대비 초과 수익",A+" 대비 초과 수익 직전",A+" 변동성 24시간",
+             A+" 모멘텀 24시간",A+" 표준화 수익률",A+" 매수 쏠림",
+             A+" 단기 대 장기 변동성","베타 조정 초과 수익 24시간",A+" 상관 72시간");
+  }
+  return out;
+}
+/* 지표 하나가 점수에 얹은 몫. 갈래마다 셈법이 다르지만 뜻은 같다.
+   선형은 가중치 곱하기 표준화 값, 부스팅은 나무를 내려가며 값이 변한 몫,
+   신경망은 원점에서 지금 자리까지 기울기를 쌓은 몫이다.
+   선형과 부스팅은 몫을 다 더하면 그 갈래의 점수와 정확히 같다.
+   신경망은 시드 여러 개를 확률 단계에서 평균 내므로 어림값이다. 크기 비교용으로만 본다.
+   갈래마다 점수 눈금이 다르므로 보정 기울기를 곱해 로그 오즈로 맞춘 뒤 평균 낸다. */
+function contribs(m,row,which,names){
+  const at=(which==="dir"?m.attrDir(row):m.attrMag(row));
+  const sc=(which==="dir"&&m.cal&&isFinite(m.cal.a))?m.cal.a:1;
+  const out=[];
+  for(let j=0;j<row.length;j++){
+    const t=(row[j]-m.mu[j])/m.sd[j], z=t>WZ?WZ:(t<-WZ?-WZ:t);
+    const c=at[j]*sc;
+    out.push({name:names[j]||("이름 없는 지표 "+(j+1)),z,w:(z?c/z:0),c,clipped:Math.abs(t)>WZ});
+  }
+  return out;
+}
+function aggContrib(lists){
+  const m=new Map();
+  for(const arr of lists)for(const it of arr){
+    const p=m.get(it.name)||{name:it.name,c:0,z:0,n:0};
+    p.c+=it.c/lists.length; p.z+=it.z/lists.length; p.n++;
+    m.set(it.name,p);
+  }
+  return [...m.values()].sort((a,b)=>Math.abs(b.c)-Math.abs(a.c));
+}
+
+/* ---------- 그리기 도구 ---------- */
+function mcv(id,H){
+  const cv=$(id); if(!cv)return null;
+  const dpr=window.devicePixelRatio||1, W=cv.clientWidth||600;
+  cv.width=W*dpr; cv.height=H*dpr;
+  const g=cv.getContext("2d");
+  g.setTransform(dpr,0,0,dpr,0,0); g.clearRect(0,0,W,H);
+  g.font="9.5px 'IBM Plex Mono', monospace";
+  return {g,W,H};
+}
+function axisBox(g,L,R,T,B){
+  g.strokeStyle="rgba(30,43,55,.9)";g.lineWidth=1;
+  g.beginPath();g.moveTo(L,B+.5);g.lineTo(R,B+.5);g.stroke();
+}
+const canvasTag=(id,h)=>'<canvas id="'+id+'" height="'+h+'" style="margin-top:9px"></canvas>';
+
+/* 2차 확률 보정 곡선. 가로축은 평균 확률에서 0.5를 뺀 값, 세로축은 보정 뒤 상승 확률이다. */
+function drawCal(){
+  const c=mcv("cvCal",158); if(!c||!DIAG)return; const {g,W,H}=c, d=DIAG;
+  const x0=d.pIn-0.5;
+  const R=Math.max(0.08,Math.abs(x0)*1.7,(d.absQ.q90||0)*1.6);
+  const L=46,Rx=W-12,T=14,B=H-22;
+  const pts=[];
+  for(let i=0;i<=140;i++){const x=-R+2*R*i/140;pts.push([x,platt(d.cal,x)*100]);}
+  let mn=Math.min(...pts.map(p=>p[1])),mx=Math.max(...pts.map(p=>p[1]));
+  mn=Math.min(mn,50);mx=Math.max(mx,50);
+  const pd=(mx-mn)*0.16+0.4; mn-=pd; mx+=pd;
+  const X=v=>L+(Rx-L)*((v+R)/(2*R)), Y=v=>B-(B-T)*((v-mn)/(mx-mn));
+  for(let j=0;j<=3;j++){
+    const v=mn+(mx-mn)*j/3,yy=Math.round(Y(v))+.5;
+    g.strokeStyle="rgba(30,43,55,.7)";g.beginPath();g.moveTo(L,yy);g.lineTo(Rx,yy);g.stroke();
+    g.fillStyle="#4A5A69";g.textAlign="right";g.fillText(v.toFixed(1)+"%",L-6,yy+3);
+  }
+  g.strokeStyle="rgba(123,141,156,.45)";g.setLineDash([2,3]);
+  g.beginPath();g.moveTo(X(0),T);g.lineTo(X(0),B);g.stroke();g.setLineDash([]);
+  g.beginPath();
+  pts.forEach((p,i)=>i?g.lineTo(X(p[0]),Y(p[1])):g.moveTo(X(p[0]),Y(p[1])));
+  g.strokeStyle="#5AAFCB";g.lineWidth=1.6;g.stroke();
+  const px=X(x0),py=Y(d.prob);
+  g.strokeStyle="rgba(226,169,75,.55)";g.lineWidth=1;g.setLineDash([2,3]);
+  g.beginPath();g.moveTo(px,B);g.lineTo(px,py);g.lineTo(L,py);g.stroke();g.setLineDash([]);
+  g.beginPath();g.arc(px,py,3.6,0,7);g.fillStyle="#E2A94B";g.fill();
+  axisBox(g,L,Rx,T,B);
+  g.fillStyle="#4A5A69";g.textAlign="left";g.fillText((-R).toFixed(3),L,B+14);
+  g.textAlign="center";g.fillText("0",X(0),B+14);
+  g.textAlign="right";g.fillText("+"+R.toFixed(3),Rx,B+14);
+  g.fillStyle="#E2A94B";g.textAlign="center";
+  g.fillText("지금 "+x0.toFixed(4),Math.min(Math.max(px,L+34),Rx-34),T-3);
+}
+
+/* 검증 구간에서 나온 신호 세기 분포. 지금 값이 어디에 서 있는지 같이 찍는다. */
+function drawHist(){
+  const c=mcv("cvHist",176); if(!c||!DIAG)return; const {g,W,H}=c, d=DIAG;
+  const arr=d.absList.map(v=>v*100);
+  const hi=Math.max(Math.max(...arr),d.aPP,d.aRawPP)*1.06;
+  const NB=28,cnt=new Array(NB).fill(0);
+  for(const v of arr){let k=Math.floor(v/hi*NB);if(k>=NB)k=NB-1;if(k<0)k=0;cnt[k]++;}
+  const cmx=Math.max(...cnt)||1;
+  const L=34,Rx=W-10,T=26,B=H-30;
+  const X=v=>L+(Rx-L)*(v/hi), Y=n=>B-(B-T)*(n/cmx);
+  for(let k=0;k<NB;k++){
+    const x1=X(hi*k/NB),x2=X(hi*(k+1)/NB);
+    g.fillStyle="rgba(90,175,203,.22)";
+    g.fillRect(x1+.5,Y(cnt[k]),Math.max(1,x2-x1-1),B-Y(cnt[k]));
+  }
+  const mark=(v,col,txt,dy)=>{
+    const x=X(v);
+    g.strokeStyle=col;g.lineWidth=1;g.setLineDash([3,3]);
+    g.beginPath();g.moveTo(x+.5,T-6);g.lineTo(x+.5,B);g.stroke();g.setLineDash([]);
+    g.fillStyle=col;g.textAlign="center";
+    g.fillText(txt,Math.min(Math.max(x,L+26),Rx-26),T-9+dy);
+  };
+  mark(d.absQ.q50*100,"rgba(123,141,156,.8)","보통",0);
+  mark(d.absQ.q80*100,"rgba(123,141,156,.9)","강",-11);
+  mark(d.absQ.q90*100,"rgba(220,230,238,.75)","매우 강",0);
+  mark(d.aRawPP,"rgba(226,169,75,.85)","보정 전",-11);
+  const x=X(d.aPP);
+  g.strokeStyle="#5AAFCB";g.lineWidth=2;
+  g.beginPath();g.moveTo(x+.5,T-6);g.lineTo(x+.5,B);g.stroke();
+  g.fillStyle="#5AAFCB";g.textAlign="center";
+  g.fillText("지금 "+d.aPP.toFixed(3),Math.min(Math.max(x,L+30),Rx-30),B+22);
+  axisBox(g,L,Rx,T,B);
+  g.fillStyle="#4A5A69";g.textAlign="left";g.fillText("0",L,B+12);
+  g.textAlign="right";g.fillText(hi.toFixed(2)+"%p",Rx,B+12);
+  g.textAlign="left";g.fillText("검증 "+arr.length+"회",L,T-9);
+}
+
+/* 확률이 바뀌면 예상 변화율이 어떻게 따라 움직이는지. 오차 폭도 같이 깔아 둔다. */
+function drawSens(){
+  const c=mcv("cvSens",178); if(!c||!DIAG)return; const {g,W,H}=c, d=DIAG;
+  const mag=d.magN*d.liveVol*100, sg=d.sigma*100;
+  const p1=40,p2=60;
+  const yAt=p=>(2*(p/100)-1)*mag;
+  const lim=Math.max(Math.abs(yAt(p1)),Math.abs(yAt(p2)),sg)*1.12;
+  const L=48,Rx=W-12,T=14,B=H-22;
+  const X=p=>L+(Rx-L)*((p-p1)/(p2-p1)), Y=v=>B-(B-T)*((v+lim)/(2*lim));
+  g.fillStyle="rgba(90,175,203,.10)";
+  g.fillRect(L,Y(sg),Rx-L,Y(-sg)-Y(sg));
+  for(let j=0;j<=4;j++){
+    const v=-lim+2*lim*j/4,yy=Math.round(Y(v))+.5;
+    g.strokeStyle="rgba(30,43,55,.75)";g.beginPath();g.moveTo(L,yy);g.lineTo(Rx,yy);g.stroke();
+    g.fillStyle="#4A5A69";g.textAlign="right";g.fillText(v.toFixed(3),L-6,yy+3);
+  }
+  g.strokeStyle="rgba(123,141,156,.5)";g.setLineDash([2,3]);
+  g.beginPath();g.moveTo(X(50),T);g.lineTo(X(50),B);g.stroke();g.setLineDash([]);
+  g.beginPath();g.moveTo(X(p1),Y(yAt(p1)));g.lineTo(X(p2),Y(yAt(p2)));
+  g.strokeStyle="#E2A94B";g.lineWidth=1.8;g.stroke();
+  const px=X(Math.min(p2,Math.max(p1,d.prob))),py=Y(d.yhat*100);
+  g.strokeStyle="rgba(90,175,203,.6)";g.lineWidth=1;g.setLineDash([2,3]);
+  g.beginPath();g.moveTo(px,B);g.lineTo(px,py);g.lineTo(L,py);g.stroke();g.setLineDash([]);
+  g.beginPath();g.arc(px,py,3.8,0,7);g.fillStyle="#5AAFCB";g.fill();
+  axisBox(g,L,Rx,T,B);
+  g.fillStyle="#4A5A69";g.textAlign="left";g.fillText("확률 40%",L,B+14);
+  g.textAlign="center";g.fillText("50%",X(50),B+14);
+  g.textAlign="right";g.fillText("60%",Rx,B+14);
+  g.fillStyle="#5AAFCB";g.textAlign="center";
+  g.fillText("지금 "+d.prob.toFixed(1)+"%",Math.min(Math.max(px,L+34),Rx-34),T+2);
+  g.fillStyle="rgba(90,175,203,.75)";g.textAlign="left";
+  g.fillText("연한 띠가 평소 빗나가는 폭 ±"+sg.toFixed(3)+"%",L+4,Y(sg)-4);
+}
+
+/* ---------- 막대 한 줄 ---------- */
+function barRow(name,val,mx,dec,sub){
+  const w=mx>0?Math.min(50,Math.abs(val)/mx*50):0;
+  const col=val>=0?"var(--up)":"var(--down)";
+  const side=val>=0?"left:50%":"right:50%";
+  return '<div class="cbar"><span class="cn">'+name+(sub?' <span style="color:var(--dimmer)">'+sub+'</span>':'')+'</span>'+
+         '<div class="cb"><b></b><i style="'+side+';width:'+w.toFixed(1)+'%;background:'+col+'"></i></div>'+
+         '<span class="cval" style="color:'+col+'">'+(val>=0?"+":"")+val.toFixed(dec)+'</span></div>';
+}
+function contribBlock(list,title,tail){
+  const top=list.slice(0,12);
+  const mx=Math.max(...top.map(t=>Math.abs(t.c)),1e-9);
+  let h='<div class="msec"><span class="lab">'+title+'</span>';
+  for(const t of top)h+=barRow(t.name,t.c,mx,4,"표준화 "+t.z.toFixed(2));
+  const rest=list.slice(12).reduce((s,t)=>s+t.c,0);
+  h+='<div class="cbar" style="border-top:1px solid var(--line-2);margin-top:5px;padding-top:6px">'+
+     '<span class="cn" style="color:var(--dimmer)">나머지 '+Math.max(0,list.length-12)+'개 합계</span>'+
+     '<div class="cb"></div><span class="cval" style="color:var(--dim)">'+(rest>=0?"+":"")+rest.toFixed(4)+'</span></div>';
+  if(tail)h+='<p class="mnote">'+tail+'</p>';
+  return h+'</div>';
+}
+
+/* ---------- 방향 ---------- */
+function bodyDir(){
+  const d=DIAG,K=d.models.length;
+  let h='<div class="msec"><span class="lab">계산 흐름</span><div class="steps">';
+  h+='<div class="step"><span class="sl">지표</span><span class="sv">'+d.models[0].p+'개</span><span class="sn">표준화 뒤 ±'+WZ+'로 자름</span></div>';
+  h+='<div class="step"><span class="sl">원점수 평균</span><span class="sv">'+d.sDirMean.toFixed(4)+'</span><span class="sn">방법 '+K+'개</span></div>';
+  h+='<div class="step lead"><span class="sl">1차 보정 확률</span><span class="sv">'+(d.pIn*100).toFixed(2)+'%</span><span class="sn">방법별 확률의 평균</span></div>';
+  h+='<div class="step out"><span class="sl">2차 보정 확률</span><span class="sv">'+d.prob.toFixed(2)+'%</span><span class="sn">검증 구간으로 다시 맞춤</span></div>';
+  h+='</div></div>';
+
+  h+='<div class="msec"><span class="lab">1단계 · 방법마다 원점수를 만들고 확률로 바꾼다</span>';
+  h+='<div class="fx">원점수 = <em>학습 구간 평균 부호</em> + Σ ( 가중치 × 잘라 낸 표준화 지표 )'+
+     '<br>확률 = 1 / ( 1 + <em>e</em><sup>−( 기울기 × 원점수 + 절편 )</sup> )</div>';
+  h+='<table style="margin-top:10px"><thead><tr><th>방법</th><th>지표</th><th>규제</th><th>원점수</th><th>기울기</th><th>절편</th><th>확률</th></tr></thead><tbody>';
+  for(const m of d.models)
+    h+='<tr><td>'+m.tag+'</td><td class="muted">'+m.p+'</td><td class="muted">'+m.alphaD+'</td><td>'+m.sDir.toFixed(4)+
+       '</td><td class="muted">'+m.cal.a.toFixed(2)+'</td><td class="muted">'+m.cal.b.toFixed(3)+
+       '</td><td>'+(m.pK*100).toFixed(2)+'%</td></tr>';
+  h+='<tr class="hl"><td>평균</td><td class="muted">—</td><td class="muted">—</td><td>'+d.sDirMean.toFixed(4)+
+     '</td><td class="muted">—</td><td class="muted">—</td><td>'+(d.pIn*100).toFixed(2)+'%</td></tr>';
+  h+='</tbody></table>';
+  h+='<p class="mnote">평균은 원점수가 아니라 확률 단계에서 낸다. 방법마다 점수의 눈금이 달라서 점수끼리 더하면 뜻이 어긋나기 때문이다.</p></div>';
+
+  h+='<div class="msec"><span class="lab">2단계 · 검증 구간으로 확률을 한 번 더 맞춘다</span>';
+  h+='<div class="fx">최종 확률 = 1 / ( 1 + <em>e</em><sup>−( <s>'+d.cal.a.toFixed(3)+'</s> × ( 평균 확률 − 0.5 ) + <s>'+d.cal.b.toFixed(4)+'</s> )</sup> ) '+
+     '= <b>'+d.prob.toFixed(2)+'%</b></div>';
+  h+=canvasTag("cvCal",158);
+  h+='<p class="mnote">파란 곡선이 보정 함수, 노란 점이 지금 자리다. 기울기가 '+d.cal.a.toFixed(2)+
+     '이므로 1차 확률이 0.5에서 벗어난 거리를 '+(d.cal.a>1?"더 벌린다":"더 좁힌다")+
+     '. 검증 구간에서 오른 봉 비율은 '+d.upShare.toFixed(1)+'퍼센트였고, 한쪽으로만 찍었을 때의 적중은 '+d.upBase.toFixed(1)+'퍼센트다.</p></div>';
+
+  h+=contribBlock(d.dirAgg,"3단계 · 어떤 지표가 원점수를 밀었나 · 방법 "+K+"개 평균",
+     "막대는 가중치와 표준화 값의 곱이다. 오른쪽이면 상승 쪽으로, 왼쪽이면 하락 쪽으로 점수를 밀었다는 뜻이다. "+
+     "표준화 값은 학습 구간 평균에서 표준편차 몇 배만큼 떨어졌는지를 말한다."+
+     (d.nameOk?"":" 지표 이름과 자리가 어긋나 번호로 표시한 항목이 있다."));
+  return h;
+}
+
+/* ---------- 신호 강도 ---------- */
+function bodySig(){
+  const d=DIAG;
+  const cur=d.tiers.find(t=>t.name===d.tierName);
+  let h='<div class="msec"><span class="lab">정의</span>';
+  h+='<div class="fx">신호 세기 = | 최종 확률 − 50% | = | '+d.prob.toFixed(2)+' − 50 | = <b>'+d.aPP.toFixed(3)+'%p</b></div>';
+  h+='<div class="steps">';
+  h+='<div class="step"><span class="sl">보통 경계</span><span class="sv">'+(d.absQ.q50*100).toFixed(3)+'</span><span class="sn">검증 분포 50번째</span></div>';
+  h+='<div class="step"><span class="sl">강 경계</span><span class="sv">'+(d.absQ.q80*100).toFixed(3)+'</span><span class="sn">검증 분포 80번째</span></div>';
+  h+='<div class="step"><span class="sl">매우 강 경계</span><span class="sv">'+(d.absQ.q90*100).toFixed(3)+'</span><span class="sn">검증 분포 90번째</span></div>';
+  h+='<div class="step lead"><span class="sl">지금 값</span><span class="sv">'+d.aPP.toFixed(3)+'</span><span class="sn">등급 '+d.lvl+'</span></div>';
+  h+='</div>';
+  h+='<p class="mnote">막대 채움 비율은 지금 값을 매우 강 경계로 나눈 값이다. '+
+     d.aPP.toFixed(3)+' ÷ '+(d.absQ.q90*100).toFixed(3)+' = '+(d.absQ.q90>0?(d.aPP/(d.absQ.q90*100)).toFixed(3):"—")+
+     ' 이므로 '+(clamp01(d.aPP/((d.absQ.q90*100)||1))*100).toFixed(1)+'퍼센트까지 찬다.</p></div>';
+
+  h+='<div class="msec"><span class="lab">검증 구간에서 나온 신호 세기 분포</span>';
+  h+=canvasTag("cvHist",176);
+  h+='<p class="mnote">막대는 검증 '+d.absList.length+'회에서 나온 신호 세기의 분포다. 대부분이 왼쪽에 몰려 있다. '+
+     '한 시간 뒤 방향에 대해 알아낼 수 있는 정보가 원래 적기 때문이다.</p>';
+  h+='<p class="mnote"><strong>눈금이 어긋나는 지점이 하나 있다.</strong> 경계값은 2차 보정을 거치지 않은 분포에서 뽑았는데, '+
+     '지금 값은 2차 보정을 거친 뒤의 값이다. 보정 전 값으로 재면 '+d.aRawPP.toFixed(3)+'%p 이고, 이 잣대로는 등급이 '+d.lvlRaw+
+     '이 된다. 기울기가 '+d.cal.a.toFixed(2)+'인 만큼 두 값이 벌어지므로, 등급은 어림잡은 이름표로만 보는 편이 맞다.</p></div>';
+
+  h+='<div class="msec"><span class="lab">신호가 셀 때만 골라 냈을 때의 성적</span>';
+  h+='<table><thead><tr><th>구간</th><th>횟수</th><th>적중</th><th>한쪽 찍기</th><th>초과</th></tr></thead><tbody>';
+  for(const t of d.tiers){
+    const on=(t.name===d.tierName);
+    h+='<tr'+(on?' class="hl"':'')+'><td>'+t.name+(on?'<span class="mtag">지금</span>':'')+'</td><td class="muted">'+t.n+'회</td>'+
+       '<td>'+(isFinite(t.hit)?t.hit.toFixed(2)+"%":"—")+'</td>'+
+       '<td class="muted">'+(isFinite(t.base)?t.base.toFixed(2)+"%":"—")+'</td>'+
+       '<td style="color:'+(t.edge>0.5?"var(--up)":(t.edge<-0.5?"var(--down)":"var(--dim)"))+'">'+
+       (isFinite(t.edge)?(t.edge>=0?"+":"")+t.edge.toFixed(2)+"p":"—")+'</td></tr>';
+  }
+  h+='</tbody></table>';
+  h+='<p class="mnote">지금 신호는 '+d.tierName+' 구간에 들어간다. 그 구간에서는 '+
+     (cur&&isFinite(cur.hit)?cur.hit.toFixed(2)+'퍼센트를 맞혔고 한쪽으로만 찍는 것보다 '+(cur.edge>=0?"+":"")+cur.edge.toFixed(2)+'퍼센트포인트 앞섰다':'표본이 모자라 성적을 내지 못했다')+
+     '. 구간을 좁힐수록 횟수가 줄어 성적이 흔들린다는 점은 감안해야 한다.</p></div>';
+
+  h+='<div class="msec"><span class="lab">참고 · 방향을 얼마나 알아냈는가</span>';
+  h+='<div class="fx">브라이어 기준 점수 = 1 − ( 예측 오차 제곱합 ÷ 고정 확률 오차 제곱합 ) = <b>'+d.skill.toFixed(4)+'</b>'+
+     '<br><em>0이면 아무것도 알아내지 못한 것, 클수록 더 알아낸 것이다.</em></div></div>';
+  return h;
+}
+
+/* ---------- 가격 예측 ---------- */
+function bodyPred(){
+  const d=DIAG,K=d.models.length;
+  const w=2*d.conf, magPct=d.magN*d.liveVol*100;
+  let h='<div class="msec"><span class="lab">계산 흐름</span>';
+  h+='<div class="fx">예상 변화율 = ( 2 × 확률 − 1 ) × 표준화 폭 × 24시간 변동성'+
+     '<br>= ( 2 × '+(d.prob/100).toFixed(4)+' − 1 ) × '+d.magN.toFixed(4)+' × '+(d.liveVol*100).toFixed(4)+'%'+
+     ' = <b>'+(d.yhat*100).toFixed(4)+'%</b>'+
+     '<br>예상 가격 = '+fmtP(d.base)+' × <em>e</em><sup>'+d.yhat.toFixed(6)+'</sup> = <b>'+fmtP(d.price)+'</b></div>';
+  h+='<div class="steps">';
+  h+='<div class="step lead"><span class="sl">방향 계수</span><span class="sv">'+(w>=0?"+":"")+w.toFixed(4)+'</span><span class="sn">확률에서 0.5를 빼고 두 배</span></div>';
+  h+='<div class="step"><span class="sl">표준화 폭</span><span class="sv">'+d.magN.toFixed(4)+'</span><span class="sn">변동성 몇 배로 움직일지</span></div>';
+  h+='<div class="step"><span class="sl">24시간 변동성</span><span class="sv">'+(d.liveVol*100).toFixed(4)+'%</span><span class="sn">최근 24봉 수익률 표준편차</span></div>';
+  h+='<div class="step out"><span class="sl">예상 변화율</span><span class="sv">'+(d.yhat*100).toFixed(4)+'%</span><span class="sn">세 값의 곱</span></div>';
+  h+='</div></div>';
+
+  h+='<div class="msec"><span class="lab">방법별 폭 · 방향에는 관여하지 않는다</span>';
+  h+='<table><thead><tr><th>방법</th><th>규제</th><th>회귀 값</th><th>바닥</th><th>적용 값</th><th>변동성 곱</th></tr></thead><tbody>';
+  for(const m of d.models)
+    h+='<tr><td>'+m.tag+'</td><td class="muted">'+m.alphaM+'</td><td'+(m.sMagRaw<m.floor?' style="color:var(--down)"':'')+'>'+m.sMagRaw.toFixed(4)+
+       '</td><td class="muted">'+m.floor.toFixed(4)+'</td><td>'+m.sMag.toFixed(4)+
+       '</td><td class="muted">'+(m.sMag*d.liveVol*100).toFixed(4)+'%</td></tr>';
+  h+='<tr class="hl"><td>평균</td><td class="muted">—</td><td class="muted">—</td><td class="muted">—</td><td>'+d.magN.toFixed(4)+
+     '</td><td>'+magPct.toFixed(4)+'%</td></tr>';
+  h+='</tbody></table>';
+  h+='<p class="mnote">폭은 음수가 될 수 없다. 회귀가 음수를 내면 학습 구간 평균 폭의 10퍼센트를 바닥으로 깔아 막는다'+
+     (d.models.some(m=>m.sMagRaw<m.floor)?'. 지금은 바닥이 실제로 걸린 방법이 있다':'. 지금은 바닥이 걸린 방법이 없다')+'.</p></div>';
+
+  h+=contribBlock(d.magAgg,"폭을 밀어 올린 지표 · 방법 "+K+"개 평균",
+     "여기서 나온 값은 크기뿐이다. 오른쪽으로 뻗은 막대가 많아도 가격이 오른다는 뜻이 아니라 크게 움직인다는 뜻이다.");
+
+  h+='<div class="msec"><span class="lab">확률이 바뀌면 예상 변화율은 어떻게 움직이나</span>';
+  h+=canvasTag("cvSens",178);
+  h+='<p class="mnote">노란 직선이 확률 대 예상 변화율이다. 폭이 고정된 상태에서는 확률이 1퍼센트포인트 움직일 때 변화율이 '+
+     (2*0.01*d.magN*d.liveVol*100).toFixed(5)+'퍼센트 움직인다. 확률이 정확히 50이면 선은 0을 지나므로 예상 가격은 지금 가격과 같아진다.</p></div>';
+
+  h+='<div class="msec"><span class="lab">오차 범위</span>';
+  h+='<div class="fx">68% 구간 = '+fmtP(d.base)+' × <em>e</em><sup>'+d.yhat.toFixed(6)+' ± '+d.sigma.toFixed(6)+'</sup>'+
+     ' = '+fmtP(d.base*Math.exp(d.yhat-d.sigma))+' ~ '+fmtP(d.base*Math.exp(d.yhat+d.sigma))+
+     '<br>예측 대 오차 비율 = '+Math.abs(d.yhat*100).toFixed(4)+' ÷ '+(d.sigma*100).toFixed(4)+' = <b>'+
+     (Math.abs(d.yhat)/d.sigma).toFixed(3)+'</b></div>';
+  h+='<p class="mnote">오차 폭은 검증 구간에서 실제 변화율과 예측 변화율의 차이를 제곱해 평균 낸 값이다. '+
+     '이 비율이 1보다 한참 작으면 가격 숫자 하나를 떼어 믿을 근거가 되지 않는다. 위쪽 확률이 알맹이고 가격은 그 확률을 눈에 보이게 옮겨 놓은 것이다.</p></div>';
+  return h;
+}
+
+/* ---------- 열고 닫기 ---------- */
+function openDiag(kind){
+  if(!DIAG)return;
+  const t={dir:["방향 확률 · 세부 연산",bodyDir],
+           sig:["신호 강도 · 세부 연산",bodySig],
+           pred:["가격 예측 · 세부 연산",bodyPred]}[kind];
+  if(!t)return;
+  $("mTitle").textContent=t[0];
+  $("mSub").textContent=DIAG.coinName+" · "+fmtT(DIAG.targetMs)+" 기준 · "+DIAG.tag;
+  $("mBody").innerHTML=t[1]();
+  $("modal").hidden=false;
+  document.body.style.overflow="hidden";
+  const box=$("mBody").parentElement; if(box)box.scrollTop=0;
+  if(kind==="dir")drawCal();
+  if(kind==="sig")drawHist();
+  if(kind==="pred")drawSens();
+  DIAG.openKind=kind;
+}
+function closeDiag(){
+  $("modal").hidden=true;
+  document.body.style.overflow="";
+  if(DIAG)DIAG.openKind=null;
+}
+
+/* ================= 기록 ================= */
+async function loadLog(sym){
+  const raw=await store.get(logKey(sym));
+  if(!raw)return [];
+  try{const a=JSON.parse(raw);return Array.isArray(a)?a:[];}catch(e){return [];}
+}
+const KEEP=24;
+const saveLog=(l,sym)=>store.set(logKey(sym),JSON.stringify(l.slice(-KEEP)));
+async function updateLog(pred,bars,sym){
+  let log=await loadLog(sym);
+  if(!log.some(r=>r.target===pred.targetMs))
+    log.push({target:pred.targetMs,base:pred.base,pred:pred.price,ret:pred.ret,prob:pred.prob,actual:null});
+  // 며칠 만에 다시 열어도 그 사이 봉으로 빈 칸을 메운다
+  const byOpen=new Map(bars.map(b=>[b.t,b.c]));
+  const oldest=bars[0].t;
+  for(const r of log)if(r.actual==null){
+    const a=byOpen.get(r.target);
+    if(a!=null)r.actual=a;
+    else if(r.target<oldest)r.actual=-1;   // 조회 범위를 벗어난 건 포기 표시
+  }
+  log=log.filter(r=>r.actual!==-1).slice(-KEEP);
+  await saveLog(log,sym);
+  if(!sym||sym===SYMBOL)renderLog(log);
+  return log;
+}
+function renderLog(log){
+  $("logPanel").style.display=log.length?"block":"none";
+  $("logMeta").textContent="최근 "+log.length+"건 · "+STORE_KIND;
+  const body=$("logBody");body.innerHTML="";
+  for(const r of log.slice().reverse()){
+    /* 색은 오르내림이 아니라 맞았느냐 틀렸느냐로만 칠한다. 초록이면 맞힌 것, 빨강이면 틀린 것이다. */
+    const done=r.actual!=null;
+    const up=done&&r.actual>r.base;
+    const guessUp=(r.prob??50)>50;
+    const ok=done?(up===guessUp):null;
+    const col=done?(ok?"var(--up)":"var(--down)"):"var(--dimmer)";
+    const tr=document.createElement("tr");
+    tr.innerHTML=
+      "<td class='muted'>"+fmtS(r.target)+"</td>"+
+      "<td style='color:"+col+"'>"+(guessUp?"상승":"하락")+
+        (r.prob!=null?" "+r.prob.toFixed(1)+"%":"")+"</td>"+
+      "<td>"+(done?"<span class='pill "+(ok?"ok":"no")+"'>"+(up?"상승":"하락")+"</span>"
+                  :"<span class='pill w'>대기</span>")+"</td>"+
+      "<td class='muted'>"+(done?fmtP(r.pred-r.actual):"—")+"</td>";
+    body.appendChild(tr);
+  }
+  const done=log.filter(r=>r.actual!=null),el=$("logSummary");
+  if(done.length>=3){
+    let hit=0,up=0,mae=0,nmae=0;
+    for(const r of done){
+      if((r.actual>r.base)===((r.prob??50)>50))hit++;
+      if(r.actual>r.base)up++;
+      mae+=Math.abs(r.actual-r.pred);nmae+=Math.abs(r.actual-r.base);
+    }
+    const base=Math.max(up,done.length-up)/done.length*100;
+    el.textContent="초록은 맞힌 것, 빨강은 틀린 것이다. 지금까지 답이 나온 "+done.length+"번 중에 "+
+      hit+"번 맞혔다. 맞힌 비율은 "+(hit/done.length*100).toFixed(1)+
+      "퍼센트이고, 같은 기간에 그냥 한쪽으로만 찍었으면 "+base.toFixed(1)+
+      "퍼센트였다. 가격은 평균 "+fmtP(mae/done.length)+"만큼 빗나갔다. 예측을 아예 안 하고 지금 가격을 그대로 답으로 냈다면 "+
+      fmtP(nmae/done.length)+"만큼 빗나갔을 것이다.";
+  }else el.textContent="초록은 맞힌 것, 빨강은 틀린 것이다. 답이 나온 예측이 세 개보다 많아지면 여기에 성적을 모아서 보여준다.";
+  if(STORE_KIND==="이 화면에만")
+    el.textContent+=" 지금은 기록을 저장할 곳이 없어서 화면을 새로 고치면 다 사라진다. 이 파일을 내려받아 브라우저로 열면 남는다.";
+}
+
+/* ================= 텔레그램 전송 =================
+   브라우저에서 봇 API를 직접 부른다. 서버가 없으니 이 파일을 열어 둔 창이 곧 스케줄러다.
+   토큰은 이 브라우저의 저장소에 그대로 들어간다. 남의 컴퓨터나 공용 화면에서는 켜지 마라.
+*/
+const TG_KEY="fx1h:tg";
+const AUTO_S=60;                 /* 정각 몇 초 뒤에 돌릴지. 1분 = 60초 */
+let TG={token:"",chat:"",on:false};
+
+async function loadTG(){
+  const raw=await store.get(TG_KEY);
+  if(raw){try{const v=JSON.parse(raw);if(v)TG={token:v.token||"",chat:v.chat||"",on:!!v.on};}catch(e){}}
+  $("tgToken").value=TG.token;
+  $("tgChat").value=TG.chat;
+  $("tgOn").checked=TG.on;
+  tgLog(TG.on?("자동 전송 켜짐 · 매시 "+String(Math.floor(AUTO_S/60)).padStart(2,"0")+"분에 네 코인을 모두 계산한다"):"자동 전송 꺼짐");
+}
+async function saveTG(){
+  TG.token=$("tgToken").value.trim();
+  TG.chat=$("tgChat").value.trim();
+  TG.on=$("tgOn").checked;
+  await store.set(TG_KEY,JSON.stringify(TG));
+  startCountdown();
+}
+function tgLog(t){ $("tgStatus").textContent=t; }
+
+/*
+  전송은 두 번 시도한다.
+  1) 보통 요청. 텔레그램이 응답을 열어 주므로 성공 여부까지 읽을 수 있다.
+  2) 막히면 응답을 읽지 않는 방식으로 한 번 더 던진다. 파일을 직접 열었을 때
+     출처가 없다고 거절당하는 경우가 있어서다. 이때는 도착 여부를 확인할 수 없다.
+*/
+const esc=t=>String(t).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");
+async function tgSend(text,pre){
+  const token=(TG.token||"").trim(), chat=(TG.chat||"").trim();
+  if(!token||!chat)throw new Error("봇 토큰이나 대화 번호가 비어 있다");
+  const url="https://api.telegram.org/bot"+token+"/sendMessage";
+  /* 표가 어긋나지 않게 고정폭 덩어리로 감싼다. 그러려면 꺾쇠 기호를 먼저 바꿔 줘야 한다. */
+  const payload={chat_id:chat,disable_web_page_preview:"true"};
+  if(pre){payload.text="<pre>"+esc(text)+"</pre>";payload.parse_mode="HTML";}
+  else payload.text=text;
+  const body=new URLSearchParams(payload);
+  try{
+    const r=await fetch(url,{method:"POST",body});
+    const j=await r.json();
+    if(!j.ok)throw new Error(j.description||("응답 "+r.status));
+    return "응답 확인함";
+  }catch(e){
+    if(/description|응답 4|응답 5/.test(e.message))throw e;
+    try{
+      await fetch(url,{method:"POST",mode:"no-cors",body});
+      return "던졌지만 응답은 못 읽음";
+    }catch(e2){ throw new Error(e.message); }
+  }
+}
+
+/* 대화 번호는 봇이 받은 말에서 뽑아 온다. 먼저 텔레그램에서 봇에게 아무 말이나 걸어야 한다. */
+async function tgFindChat(){
+  const token=$("tgToken").value.trim();
+  if(!token){tgLog("봇 토큰을 먼저 넣어라");return;}
+  tgLog("대화 번호 찾는 중");
+  try{
+    const r=await fetch("https://api.telegram.org/bot"+token+"/getUpdates");
+    const j=await r.json();
+    if(!j.ok)throw new Error(j.description||("응답 "+r.status));
+    const ids=[];
+    for(const u of j.result){
+      const m=u.message||u.channel_post||u.edited_message;
+      if(m&&m.chat){const id=String(m.chat.id);if(!ids.includes(id))ids.push(id);}
+    }
+    if(!ids.length){tgLog("봇이 받은 말이 없다. 텔레그램에서 봇에게 아무 말이나 보낸 뒤 다시 눌러라");return;}
+    $("tgChat").value=ids[ids.length-1];
+    await saveTG();
+    tgLog("찾았다 · "+ids.join(", "));
+  }catch(e){ tgLog("번호 찾기 실패 · "+e.message); }
+}
+
+const arrow=p=>p>=50?"상승":"하락";
+/* 한글은 고정폭 글꼴에서 두 칸을 차지한다. 글자 수가 아니라 차지하는 칸으로 맞춰야 표가 안 어긋난다. */
+const wlen=t=>{let n=0;for(const ch of String(t))n+=(ch.codePointAt(0)>=0x1100?2:1);return n;};
+function padR(t,n){t=String(t);let w=wlen(t);while(w<n){t+=" ";w++;}return t;}
+
+/* 지난 시간 예측 채점. 방금 끝난 봉이 지난번 예측의 정답지다. */
+function gradeOf(R){
+  if(!R||!R.log)return null;
+  const t=R.liveBar.t;
+  const row=R.log.find(x=>x.target===t&&x.actual!=null);
+  if(!row)return null;
+  const up=row.actual>row.base, guessUp=(row.prob??50)>50;
+  return {ok:up===guessUp,up,prob:row.prob??50,pred:row.pred,actual:row.actual,
+          err:row.pred-row.actual,base:row.base};
+}
+
+function buildReport(out,reason){
+  const first=out.find(o=>o.R);
+  const L=[];
+  L.push("1시간 예측 · "+(first?fmtS(first.R.targetMs)+" 목표":"계산 실패")+(reason?" · "+reason:""));
+
+  /* 지난 시간 채점. 한 줄에 한 코인, 폭을 좁게 잡아 휴대폰에서 가로로 밀리지 않게 한다. */
+  const graded=out.map(o=>({o,g:gradeOf(o.R)}));
+  const done=graded.filter(x=>x.g);
+  L.push("");
+  L.push("지난 1시간 채점"+(first?" · "+pad(new Date(first.R.liveBar.t).getHours())+":00 마감":""));
+  for(const {o,g} of graded){
+    if(!g){L.push(" "+padR(o.coin.tag,5)+"기록 없음");continue;}
+    L.push(" "+padR(o.coin.tag,5)+padR(arrow(g.prob)+" "+g.prob.toFixed(1)+"%",13)+
+           "→ "+padR(g.up?"상승":"하락",6)+(g.ok?"적중":"빗나감"));
+  }
+  if(done.length){
+    const hit=done.filter(x=>x.g.ok).length;
+    let e=0; for(const x of done)e+=Math.abs(x.g.err)/x.g.base*100;
+    L.push(" "+done.length+"건 중 "+hit+"건 적중 · 평균 오차 "+(e/done.length).toFixed(3)+"%");
+  }
+
+  L.push("");
+  L.push("다음 1시간"+(first?" · "+fmtS(first.R.targetMs)+" 목표":""));
+  for(const o of out){
+    L.push("");
+    if(!o.R){L.push(o.coin.tag+"  계산 실패");L.push("  "+o.err);continue;}
+    const R=o.R;
+    L.push(padR(o.coin.tag,5)+padR(arrow(R.prob)+" "+R.prob.toFixed(1)+"%",13)+"신호 "+R.lvl);
+    L.push("  "+fmtP(R.liveBar.c)+" → "+fmtP(R.price)+
+           "  "+(R.yhat>=0?"+":"")+(R.yhat*100).toFixed(3)+"%");
+    L.push("  68% 구간 "+fmtP(R.liveBar.c*Math.exp(R.yhat-R.val.sigma))+
+           " ~ "+fmtP(R.liveBar.c*Math.exp(R.yhat+R.val.sigma)));
+  }
+  return L.join("\n");
+}
+
+/* ================= 실행 ================= */
+let timer=null, NEXT_SLOT=null;
+const RING=2*Math.PI*13;
+/*
+  다음 실행 시각.
+  자동 전송을 켜 두면 매시 정각 1분에 네 코인을 모두 돌리고, 꺼 두면 정각 40초에
+  지금 보고 있는 코인만 다시 계산한다.
+  예전 코드는 매초 다음 시각을 새로 구하는 방식이라 정각을 넘기는 순간 목표가
+  다음 시간으로 넘어가 버려서 실제로는 한 번도 스스로 돌지 않았다.
+  이제는 목표 시각을 한 번 정해 두고 그 시각을 지났는지만 본다.
+*/
+const slotSec=()=>(TG.on?AUTO_S:BUFFER_S);
+function nextSlot(from){
+  let t=Math.floor(from/BAR_MS)*BAR_MS+slotSec()*1000;
+  while(t<=from)t+=BAR_MS;
+  return t;
+}
+function startCountdown(){
+  if(timer)clearInterval(timer);
+  NEXT_SLOT=nextSlot(Date.now());
+  const el=$("countdown"),ring=$("ringFill");
+  const tick=()=>{
+    const now=Date.now();
+    if(NEXT_SLOT==null)NEXT_SLOT=nextSlot(now);
+    const left=NEXT_SLOT-now;
+    if(left<=0){
+      NEXT_SLOT=nextSlot(now);
+      el.textContent="계산 중";
+      runAll("정시");
+      return;
+    }
+    const s=Math.floor(left/1000);
+    el.textContent=pad(Math.floor(s/60))+":"+pad(s%60);
+    ring.setAttribute("stroke-dashoffset",(RING*clamp01(left/BAR_MS)).toFixed(1));
+  };
+  tick();timer=setInterval(tick,1000);
+  /* 숨은 탭에서는 시계가 느려진다. 다시 앞으로 나오면 곧바로 한 번 확인한다. */
+  if(!startCountdown.__vis){
+    startCountdown.__vis=1;
+    document.addEventListener("visibilitychange",()=>{if(!document.hidden&&timer)tick();});
+  }
+}
+function flat(d){
+  const X=[],y=[],vol=[],cl=[];
+  d.meta.forEach((m,k)=>{if(isFinite(m.y)){X.push(d.rows[k]);y.push(m.y);vol.push(m.vol);cl.push(m.close);}});
+  return {X,y,vol,cl};
+}
+/* 지금 예측에 쓸 줄. 설계행렬이 가진 가장 최근 봉이다. 세 갈래가 같은 줄을 본다. */
+function liveRow(d,K){
+  let bi=-1,bk=-1;
+  d.meta.forEach((m,k)=>{if(m.i>bi){bi=m.i;bk=k;}});
+  if(bk<0)throw new Error("예측에 쓸 줄을 찾지 못했다");
+  const row=d.rows[bk];
+  return {i:bi,rows:new Array(K).fill(row),vol:d.meta[bk].vol};
+}
+const symText=(sym)=>{sym=sym||SYMBOL;const c=COINS.find(x=>x.sym===sym);return (c?c.name+" ":"")+sym;};
+const PANELS=["dirPanel","sigPanel","predPanel","chartPanel","uncPanel","valPanel"];
+
+/* ================= 계산 · 화면 · 저장 분리 =================
+   화면을 건드리지 않고 코인 하나를 끝까지 계산한다. 백그라운드에서 네 코인을
+   돌리려면 계산과 그리기가 떨어져 있어야 한다. */
+async function compute(sym,injected,st){
+  st=st||function(){};
+  let bars,host;
+  if(injected){bars=injected;host="직접 입력";}
+  else{st("시세 수신 중",-1);const r=await fetchSpot(sym);bars=r.bars;host=r.host;}
+
+  let ext={matched:0,funding:0};
+  let mkt={matched:0,self:false};
+  if(!injected){
+    st("선물 데이터 수신 중",-1);
+    try{ext=await fetchDerivatives(bars,sym);}catch(e){ext={matched:0,funding:0,err:e.message};}
+    st("맞은편 코인 데이터 수신 중",-1);
+    try{mkt=await fetchMarket(bars,host,sym);}catch(e){mkt={matched:0,self:false,err:e.message};}
+  }
+
+  st("지표 생성 중 · 기록 "+bars.length+"개",0.08);
+  await yieldUI();
+
+  const hasExt=ext.matched>MIN_BARS;
+  const hasMkt=mkt.matched>MIN_BARS;
+
+  /*
+    코인별 파라미터 최적화.
+    래그 깊이와 롤링 창 조합, 그리고 선물 입력 사용 여부를 코인마다 따로 고른다.
+    다만 고르는 데 쓴 구간에서 성적을 보고하면 그 자체가 부풀림이다.
+    그래서 앞 65퍼센트에서만 후보를 고르고, 뒤 35퍼센트는 손대지 않았다가
+    확정된 조합 하나로만 성적을 낸다.
+  */
+  const cand=[];
+  for(const cfg of CFGS){
+    const d=buildDesign(bars,false,cfg,hasMkt);
+    if(d.meta.length>MIN_BARS)cand.push({cfg,useExt:false,d});
+    if(hasExt){
+      const de=buildDesign(bars,true,cfg,hasMkt);
+      if(de.meta.length>MIN_BARS)cand.push({cfg,useExt:true,d:de});
+    }
+  }
+  if(!cand.length||flat(cand[0].d).X.length<300)throw new Error("연습에 쓸 기록이 모자란다");
+
+  const nRef=flat(cand[0].d).X.length;
+  const splitAt=Math.floor(nRef*0.65);
+
+  for(let k=0;k<cand.length;k++){
+    const c=cand[k];
+    st("방법 탐색 "+(k+1)+"/"+cand.length+" · "+c.cfg.tag+
+       (c.useExt?" + 선물":"")+" · 지표 "+c.d.p+"개", 0.1+0.5*(k/cand.length));
+    await yieldUI();
+    const F=flat(c.d);
+    const cut=Math.min(splitAt,F.X.length);
+    try{
+      const r=await walkForward(F.X.slice(0,cut),F.y.slice(0,cut),
+                  F.vol.slice(0,cut),F.cl.slice(0,cut),["ridge"],null,null,
+                  {folds:3,minTrain:Math.floor(cut*0.5)});
+      c.sel=r.skill; c.selEdge=r.edge;
+    }catch(e){ c.sel=NaN; c.selEdge=NaN; }
+  }
+
+  /* 재료 묶음 하나를 확정한다. 여기까지는 선형으로만 재서 값싸게 끝낸다. */
+  const ranked=cand.filter(c=>isFinite(c.sel)).sort((a,b)=>b.sel-a.sel);
+  const best=(ranked.length?ranked[0]:cand[0]);
+  const cfgTag=best.cfg.tag+(best.useExt?"+선물":"");
+  const F=flat(best.d);
+  const nAll=F.X.length;
+
+  /*
+    갈래별 무게 정하기.
+    선형은 흔들림이 적고, 부스팅은 재료가 겹치는 자리를 잡아내고, 신경망은 그 사이를 매끄럽게 잇는다.
+    어느 쪽이 이 코인에 맞는지는 미리 알 수 없다. 그래서 앞 구간에서 셋을 따로 돌려 보고
+    잘한 쪽에 무게를 더 준다. 다만 절반은 무조건 똑같이 나눈다. 앞 구간에서 벌어진 차이도
+    상당 부분은 운이라서, 거기에 전부를 걸면 다음 구간에서 그대로 뒤집힌다.
+  */
+  const cut2=Math.min(splitAt,nAll);
+  st("갈래 시험 · "+cfgTag,0.6);
+  const fw=await walkForward(F.X.slice(0,cut2),F.y.slice(0,cut2),F.vol.slice(0,cut2),F.cl.slice(0,cut2),
+              FAMS,null,(k,n)=>{st("갈래 시험 "+k+"/"+n,0.6+0.12*(k/n));},
+              {folds:3,minTrain:Math.floor(cut2*0.55),dirOnly:true});
+  const sk=fw.famSkill.map(x=>Math.max(0,x)), ssk=sk.reduce((a,b)=>a+b,0);
+  const W=sk.map(x=>ssk>0?(0.5/FAMS.length+0.5*x/ssk):1/FAMS.length);
+  {let z=0;for(const x of W)z+=x;for(let k=0;k<W.length;k++)W[k]/=z;}
+
+  const top=FAMS.map((f,k)=>({cfg:best.cfg,useExt:best.useExt,d:best.d,fam:f,w:W[k]}));
+  const tagOf=c=>FAM_TAG[c.fam];
+  const ensTag=cfgTag+" · "+FAMS.map(f=>FAM_TAG[f]).join("+");
+
+  /* 확정된 구성으로만, 고를 때 들여다보지 않은 뒤 구간에서 성적을 낸다 */
+  st("검증 중 · "+ensTag,0.73);
+  const val=await walkForward(F.X,F.y,F.vol,F.cl,FAMS,W,
+              (k,n)=>{st("검증 "+k+"/"+n,0.73+0.19*(k/n));},
+              {folds:4,minTrain:Math.floor(nAll*0.65)});
+  await store.set(CFG_KEY(sym),JSON.stringify({tags:[cfgTag].concat(FAMS.map(f=>FAM_TAG[f])),p:best.d.p}));
+
+  st("최종 학습 중",0.93);
+  const yM=F.y.map((v,i)=>Math.abs(v)/(F.vol[i]+EPS)), yS=F.y.map(v=>v>0?1:-1);
+  const wDir=sampleW(0,nAll,F.y,F.vol,HALF_LIFE,true), wMag=sampleW(0,nAll,F.y,F.vol,HALF_LIFE,false);
+  const models=[];
+  for(const f of FAMS)models.push(await fitMember(f,F.X,yM,yS,F.y,wDir,wMag,0,nAll));
+  const LR=liveRow(best.d,models.length);
+  const liveVol=LR.vol;
+  const liveBar=bars[LR.i];
+
+  /*
+    1단계 방향. 학습 구간 보정을 거친 확률을 검증 구간 보정으로 한 번 더 통과시킨다.
+    2단계 크기. 부호 없는 폭만 뽑는다.
+    3단계 가격. 두 값을 곱한다. 이 순서 밖에서 가격이 만들어지는 경로는 없다.
+  */
+  let pIn=0,magN=0;
+  for(let k=0;k<models.length;k++){
+    pIn+=W[k]*probUp(models[k],LR.rows[k]);
+    magN+=W[k]*predMag(models[k],LR.rows[k]);
+  }
+  const prob=platt(val.cal,pIn-0.5)*100;
+  const conf=prob/100-0.5;
+  const yhat=2*conf*magN*liveVol;
+  const price=liveBar.c*Math.exp(yhat);
+  const targetMs=liveBar.t+BAR_MS;
+  const pred={ret:yhat,price,base:liveBar.c,targetMs,prob};
+
+  const a=Math.abs(conf);
+  let lvl,note;
+  if(a>=val.absQ.q90){lvl="매우 강";note="지금까지 나온 신호 중에 가장 센 편에 든다.";}
+  else if(a>=val.absQ.q80){lvl="강";note="꽤 또렷한 편이다.";}
+  else if(a>=val.absQ.q50){lvl="보통";note="특별할 것 없는 보통 세기다.";}
+  else{lvl="약";note="신호가 약하다. 그래서 예상 가격도 지금 가격 가까이에 딱 붙는다. 이럴 때는 그냥 넘기는 편이 낫다.";}
+
+  return {sym,injected:!!injected,bars,host,ext,mkt,hasExt,hasMkt,cand,top,best,tagOf,ensTag,W,
+          anchName:ANCHOR_NAME(sym),fw,
+          val,models,LR,liveVol,liveBar,pIn,prob,conf,magN,yhat,price,targetMs,pred,lvl,note,log:null};
+}
+
+/* 계산 결과를 저장소에 남긴다. 요약 칸과 이력표가 이 값을 읽는다. */
+async function persist(R){
+  await store.set(SNAP_KEY(R.sym),JSON.stringify({
+    prob:R.prob,ret:R.yhat,price:R.price,base:R.liveBar.c,targetMs:R.targetMs,
+    lvl:R.lvl,at:Date.now(),hit:R.val.hit,edge:R.val.edge}));
+  if(!R.injected)R.log=await updateLog(R.pred,R.bars,R.sym);
+  else R.log=await loadLog(R.sym);
+  return R;
+}
+
+/* 계산 결과를 화면에 옮긴다. 지금 보고 있는 코인일 때만 부른다. */
+function render(R){
+  const {val,top,best,cand,ensTag,hasMkt,models,LR,liveBar,liveVol,W,anchName,
+         pIn,prob,conf,magN,yhat,price,targetMs,pred,lvl,note,bars,tagOf}=R;
+  const mktTag=hasMkt?(" · "+anchName+" 흐름 포함"):"";
+
+  $("skel").style.display="none";
+  PANELS.forEach((id,k)=>{
+    const el=$(id);
+    if(el.style.display!=="block"){
+      el.style.display="block";
+      el.classList.add("fade");
+      el.style.animationDelay=(k*55)+"ms";
+    }
+  });
+
+  /* ---- 방향 ---- */
+  $("dirTime").textContent=fmtT(targetMs)+" 기준";
+  const pv=$("probVal");
+  pv.style.color=prob>=50?"var(--up)":"var(--down)";
+  animateNum(pv,prob,v=>v.toFixed(1)+"<span class='unit'>%</span>");
+  renderGauge(prob,val.upShare,val.absQ.q80,val.absQ.q90);
+  $("dirNote").textContent=
+    "시험해 본 기간에는 오른 시간이 전체의 "+val.upShare.toFixed(1)+"퍼센트였다. 그래서 아무것도 계산하지 않고 매번 한쪽으로만 찍어도 "+
+    val.upBase.toFixed(1)+"퍼센트는 맞는다. 위에 있는 확률이 50에서 얼마나 멀리 떨어졌는지, 딱 그만큼만 이 프로그램이 새로 알아낸 몫이다.";
+
+  /* ---- 신호 세기 ---- */
+  const a=Math.abs(conf);
+  $("confLevel").textContent=lvl;
+  $("confNote").textContent=note;
+  $("sigPip").style.background=prob>=50?"var(--up)":"var(--down)";
+  $("sigMeter").style.width=(clamp01(a/(val.absQ.q90||1))*100).toFixed(1)+"%";
+  $("kUpShare").textContent=val.upShare.toFixed(1)+"%";
+  $("kBase").textContent=val.upBase.toFixed(1)+"%";
+  $("kCfg").textContent=ensTag+mktTag;
+
+  /* ---- 세부 연산 붙잡아 두기 ---- */
+  {
+    const lvlOf=x=>x>=val.absQ.q90?"매우 강":(x>=val.absQ.q80?"강":(x>=val.absQ.q50?"보통":"약"));
+    const tierOf=x=>x>=val.absQ.q90?COVER_NAME[3]:(x>=val.absQ.q80?COVER_NAME[2]:(x>=val.absQ.q50?COVER_NAME[1]:COVER_NAME[0]));
+    const aRaw=Math.abs(pIn-0.5);
+    const md=[],dirL=[],magL=[];
+    let nameOk=true,sSum=0;
+    for(let k=0;k<models.length;k++){
+      const m=models[k],row=LR.rows[k],c=top[k];
+      const nm=featNames(c.cfg,c.useExt,hasMkt,anchName);
+      if(nm.length!==row.length)nameOk=false;
+      const sD=predDir(m,row);
+      const sMagRaw=predMagRaw(m,row);
+      sSum+=W[k]*sD;
+      md.push({tag:tagOf(c),p:row.length,sDir:sD,pK:platt(m.cal,sD),cal:m.cal,
+               alphaD:m.dir.alpha+" · 무게 "+W[k].toFixed(2),alphaM:m.mag.alpha,
+               sMagRaw,floor:m.mag.floor,sMag:Math.max(sMagRaw,m.mag.floor)});
+      dirL.push(contribs(m,row,"dir",nm));
+      magL.push(contribs(m,row,"mag",nm));
+    }
+    DIAG={
+      coinName:symText(R.sym),tag:ensTag+mktTag,targetMs,
+      base:liveBar.c,liveVol,pIn,prob,conf,magN,yhat,price,
+      sDirMean:sSum,
+      cal:val.cal,sigma:val.sigma,upShare:val.upShare,upBase:val.upBase,
+      absQ:val.absQ,absList:val.absList,tiers:val.tiers,skill:val.skill,
+      n:val.n,hit:val.hit,edge:val.edge,
+      aPP:Math.abs(conf)*100,aRawPP:aRaw*100,
+      lvl,lvlRaw:lvlOf(aRaw),tierName:tierOf(Math.abs(conf)),
+      models:md,dirAgg:aggContrib(dirL),magAgg:aggContrib(magL),nameOk,openKind:null
+    };
+    ["btnDir","btnSig","btnPred"].forEach(id=>{$(id).disabled=false;});
+  }
+
+  /* ---- 가격과 유도 경로 ---- */
+  $("targetTime").textContent=fmtT(targetMs);
+  animateNum($("predPrice"),price,v=>fmtP(v)+"<span class='unit'>USDT</span>");
+  const rd=$("predRet");
+  rd.textContent=(yhat>=0?"+":"")+(yhat*100).toFixed(3)+" %";
+  rd.className="val "+(Math.abs(yhat)<5e-5?"flat":(yhat>0?"up":"down"));
+  $("baseClose").textContent=fmtP(liveBar.c);
+  animateNum($("hProb"),prob,v=>v.toFixed(1)+" %");
+  const hw=$("hW");
+  animateNum(hw,2*conf,v=>(v>=0?"+":"")+v.toFixed(3));
+  hw.style.color=conf>=0?"var(--up)":"var(--down)";
+  animateNum($("hMag"),magN*liveVol*100,v=>v.toFixed(3)+" %");
+  animateNum($("hRet"),yhat*100,v=>(v>=0?"+":"")+v.toFixed(3)+" %");
+  $("decompNote").textContent=
+    "오를 확률 "+prob.toFixed(1)+"퍼센트에서 방향 점수 "+(2*conf).toFixed(3)+
+    "이 나왔다. 여기에 움직일 폭 "+(magN*liveVol*100).toFixed(3)+"퍼센트를 곱하니 "+
+    (yhat*100).toFixed(3)+"퍼센트가 됐다. 확률이 딱 50이면 방향 점수가 0이 되니까 곱한 값도 0이 되고, 예상 가격은 지금 가격과 같아진다. "+
+    "폭은 언제나 0보다 크기 때문에, 확률이 오른다고 하면 예상 가격도 반드시 올라간다. 둘이 서로 다른 말을 할 수가 없다.";
+
+  /* ---- 불확실성 ---- */
+  $("band1").textContent=
+    fmtP(liveBar.c*Math.exp(yhat-val.sigma))+" ~ "+fmtP(liveBar.c*Math.exp(yhat+val.sigma));
+  $("uSigma").textContent=(val.sigma*100).toFixed(3)+"%";
+  const snr=Math.abs(yhat)/val.sigma;
+  $("snr").textContent=snr.toFixed(2)+" 시그마";
+  $("snrMeter").style.width=(clamp01(snr)*100).toFixed(1)+"%";
+  $("snrText").textContent=
+    "찍은 움직임이 평소 빗나가는 폭의 "+snr.toFixed(2)+"배라는 뜻이다. "+
+    (snr<0.3?"1보다 한참 작다. 방향이 헷갈리면 예상 크기가 저절로 줄어들도록 만들어 놓았기 때문이다. 가격 숫자 하나만 떼어 믿을 일은 아니고, 위쪽 확률이 진짜 알맹이다."
+           :"이런 값이 계속 나온다면 지난 기록을 통째로 외워 버린 것은 아닌지 의심해야 한다.");
+
+  /* ---- 성적표 ---- */
+  $("valMeta").textContent=
+    top.length+"갈래 앙상블 · 지표 "+best.d.p+" · 표본 "+val.n;
+  $("mHit").textContent=val.hit.toFixed(2)+"%";
+  $("mUp").textContent=val.upBase.toFixed(2)+"%";
+  const ee=$("mEdge");
+  ee.textContent=(val.edge>=0?"+":"")+val.edge.toFixed(2)+"p";
+  ee.style.color=val.edge>0.5?"var(--up)":(val.edge<-0.5?"var(--down)":"var(--text)");
+  const im=$("mImp");
+  im.textContent=(val.imp>=0?"+":"")+val.imp.toFixed(2)+"%";
+  im.style.color=val.imp>0?"var(--up)":(val.imp<0?"var(--down)":"var(--text)");
+  const tTop=val.tiers[val.tiers.length-1];
+  $("mTop").textContent=isFinite(tTop.hit)?tTop.hit.toFixed(2)+"%":"—";
+  $("mTopNote").textContent=
+    isFinite(tTop.edge)?("가장 센 10퍼센트 · "+tTop.n+"번 · 그냥 찍기보다 "+(tTop.edge>=0?"+":"")+tTop.edge.toFixed(1)+"p"):"가장 센 10퍼센트";
+  $("mSigma").textContent=(val.sigma*100).toFixed(3)+"%";
+  renderTiers(val.tiers);
+
+  let verdict;
+  if(val.hit>55)
+    verdict="맞힌 비율이 55퍼센트를 넘었다. 잘했다는 뜻이 아니다. 어딘가에서 미래 답안지가 슬쩍 새어 들어왔거나, 시험한 기간이 한쪽으로만 쭉 흘러간 별난 구간일 가능성이 크다. 기간을 바꿔 다시 재봐야 한다.";
+  else if(val.edge>1)
+    verdict="그냥 찍는 것보다 "+val.edge.toFixed(1)+"퍼센트포인트 앞선다. 방향에 대해 아는 게 조금은 있다는 뜻이다. 다만 사고팔 때 드는 돈까지 이기려면 대략 56퍼센트는 되어야 하니, 이 정도로 돈을 벌 수는 없다.";
+  else if(val.edge<-1)
+    verdict="그냥 찍는 것보다 "+Math.abs(val.edge).toFixed(1)+"퍼센트포인트 못하다. 매번 한쪽으로만 찍느니만 못하다는 뜻이니, 이 기간에서는 배울 규칙을 찾아내지 못한 것이다.";
+  else
+    verdict="그냥 찍는 것과 사실상 같다. 지금 보이는 맞힌 비율은 오른 시간이 조금 더 많았다는 사실에서 온 것이지, 이 프로그램의 실력이 아니다. 가격과 거래량만 가지고 한 시간 뒤를 맞히려 하면 원래 이 정도가 나온다.";
+  {
+    const tried=cand.filter(c=>isFinite(c.selEdge)).map(c=>c.selEdge);
+    const lo=tried.length?Math.min(...tried):NaN, hi=tried.length?Math.max(...tried):NaN;
+    const wtxt=FAMS.map((f,k)=>FAM_TAG[f]+" "+(W[k]*100).toFixed(0)+"퍼센트").join(", ");
+    verdict+=" 이 코인에 쓸 재료 묶음을 "+cand.length+"가지 시험해 봤다. 앞쪽 구간에서 성적이 "+
+      lo.toFixed(1)+"에서 "+hi.toFixed(1)+"퍼센트포인트까지 갈렸다. 이 차이는 대부분 운이라서 다음 구간에 가면 순위가 쉽게 뒤집힌다. "+
+      "고른 묶음은 "+ensTag+"이다. 그 위에 선형, 부스팅, 신경망 세 갈래를 각각 돌리고 확률 단계에서 섞었다. "+
+      "무게는 "+wtxt+"인데, 절반은 무조건 똑같이 나누고 나머지 절반만 앞 구간 성적으로 갈랐다"+
+      (hasMkt?". 여기에 "+anchName+"이 같은 시각까지 어떻게 움직였는지도 재료로 넣었다":"")+
+      ". 위 성적표는 고를 때 한 번도 들여다보지 않은 뒷구간에서, 이 구성 그대로 낸 것이다.";
+  }
+  $("verdict").textContent=verdict;
+
+  drawChart(bars,pred,val.sigma);
+  if(R.log)renderLog(R.log);
+}
+
+const doneText=R=>"완료 · "+R.host.replace("https://","")+" · 기록 "+R.bars.length+"개"+
+  (R.hasExt?" · 선물 "+R.ext.matched+"개":"")+(R.hasMkt?" · "+R.anchName+" "+R.mkt.matched+"개":"");
+
+let JOB={busy:false};
+
+/* ================= 화면 복원용 보관본 =================
+   코인 단추를 눌러 옮겨 다닐 때 다시 계산하지 않으려면, 화면을 그리는 데 필요한 값을
+   들고 있어야 한다. 계산 결과를 통째로 들고 있을 수는 없다. 설계행렬 여덟 벌과
+   파생 계열이 코인 하나당 수십 메가씩 붙어 있기 때문이다.
+   그래서 그리는 데 실제로 쓰는 것만 남긴다. 봉은 차트가 보는 마지막 90개,
+   후보 목록은 성적 숫자만, 모델은 학습 구간 확률 배열을 뗀 껍데기다.
+   이 상태로 코인 하나당 1메가 아래로 떨어진다. */
+const VIEW=new Map();
+function viewOf(R,done){
+  return {
+    sym:R.sym, injected:R.injected, at:Date.now(), done,
+    bars:R.bars.slice(-90),
+    host:R.host, ext:R.ext, mkt:R.mkt, hasExt:R.hasExt, hasMkt:R.hasMkt,
+    cand:R.cand.map(c=>({selEdge:c.selEdge})),
+    top:R.top.map(c=>({cfg:c.cfg,useExt:c.useExt,fam:c.fam,w:c.w})),
+    best:{cfg:R.best.cfg,useExt:R.best.useExt,d:{p:R.best.d.p}},
+    tagOf:R.tagOf, ensTag:R.ensTag, W:R.W, anchName:R.anchName,
+    val:R.val,
+    models:R.models.map(m=>{const o=Object.assign({},m);delete o.trP;return o;}),
+    LR:{i:R.LR.i,rows:R.LR.rows,vol:R.LR.vol},
+    liveVol:R.liveVol, liveBar:R.liveBar,
+    pIn:R.pIn, prob:R.prob, conf:R.conf, magN:R.magN,
+    yhat:R.yhat, price:R.price, targetMs:R.targetMs, pred:R.pred,
+    lvl:R.lvl, note:R.note, log:R.log
+  };
+}
+
+/*
+  보고서에 필요한 값만 남기고 나머지는 버린다.
+*/
+const slim=R=>({sym:R.sym,prob:R.prob,lvl:R.lvl,yhat:R.yhat,price:R.price,targetMs:R.targetMs,
+  liveBar:{t:R.liveBar.t,c:R.liveBar.c},
+  val:{sigma:R.val.sigma,hit:R.val.hit,upBase:R.val.upBase,edge:R.val.edge,n:R.val.n},
+  log:R.log});
+
+async function run(injected){
+  if(JOB.busy)return null;
+  JOB.busy=true;
+  const btn=$("refresh");
+  btn.disabled=true; renderCoins(true); renderSummary(true);
+  setStatus(injected?"입력 값 읽는 중":"시세 수신 중","");
+  setProgress(-1);
+  try{
+    const R=await compute(SYMBOL,injected,(t,f)=>{setStatus(t,"");setProgress(f);});
+    $("manualPanel").style.display="none";
+    setProgress(0.96);
+    await persist(R);
+    render(R);
+    VIEW.set(R.sym,viewOf(R,doneText(R)));
+    await refreshSummary(!injected);
+    setProgress(1);
+    setTimeout(()=>setProgress(null),700);
+    setStatus(doneText(R),"live");
+    startCountdown();
+    return R;
+  }catch(e){
+    setProgress(null);
+    $("skel").style.display="none";
+    setStatus("수신 실패: "+e.message,"err");
+    if(!injected)$("manualPanel").style.display="block";
+    return null;
+  }finally{JOB.busy=false;btn.disabled=false;renderCoins(false);renderSummary(false);}
+}
+
+/* ================= 네 코인 한꺼번에 =================
+   매시 정각 1분에 부른다. 코인을 하나씩 순서대로 돌린다. 동시에 돌리면
+   메모리가 네 배로 뛰고 요청도 한꺼번에 몰려서 오히려 느려진다. */
+async function runAll(reason){
+  if(JOB.busy)return null;
+  JOB.busy=true;
+  const btn=$("refresh");
+  btn.disabled=true; renderCoins(true); renderSummary(true);
+  const out=[];
+  try{
+    for(let i=0;i<COINS.length;i++){
+      const c=COINS[i], head="["+c.tag+" "+(i+1)+"/"+COINS.length+"] ";
+      try{
+        const R=await compute(c.sym,null,(t,f)=>{
+          setStatus(head+t,"");
+          setProgress(f<0?-1:(i+clamp01(f))/COINS.length);
+        });
+        await persist(R);
+        if(c.sym===SYMBOL){$("manualPanel").style.display="none";render(R);}
+        VIEW.set(c.sym,viewOf(R,doneText(R)));
+        out.push({coin:c,R:slim(R)});
+      }catch(e){
+        out.push({coin:c,err:e.message});
+      }
+      await yieldUI();
+    }
+    await refreshSummary(true);
+    const ok=out.filter(o=>o.R).length;
+    setStatus("전체 계산 완료 · "+ok+"/"+COINS.length+" · "+fmtS(Date.now()),ok?"live":"err");
+    setProgress(1); setTimeout(()=>setProgress(null),700);
+  }finally{
+    JOB.busy=false; btn.disabled=false; renderCoins(false); renderSummary(false);
+    startCountdown();
+  }
+  if(TG.on&&out.some(o=>o.R)){
+    try{
+      const r=await tgSend(buildReport(out,reason),true);
+      tgLog("보냄 · "+fmtS(Date.now())+" · "+r);
+    }catch(e){ tgLog("전송 실패 · "+e.message); }
+  }
+  return out;
+}
+
+/*
+  코인 단추는 보는 대상만 바꾼다. 계산은 하지 않는다.
+  이미 계산해 둔 코인이면 그 결과를 그대로 다시 그리고, 없으면 빈 화면에 안내만 남긴다.
+  코인 하나를 새로 계산하는 길은 새로고침 단추 하나뿐이고,
+  네 코인을 한꺼번에 계산하는 길은 아래 수동 실행과 매시 정각 자동 실행 두 가지다.
+*/
+async function selectCoin(sym){
+  if(sym===SYMBOL||JOB.busy)return;
+  SYMBOL=sym;
+  $("symLabel").textContent=symText();
+  await store.set(SYM_KEY,SYMBOL);
+  CH=null;
+  closeDiag(); DIAG=null;
+  ["btnDir","btnSig","btnPred"].forEach(id=>{$(id).disabled=true;});
+  ["probVal","predPrice","hProb","hW","hMag","hRet"].forEach(id=>{$(id).__v=undefined;});
+  PANELS.concat(["logPanel"]).forEach(id=>{
+    const el=$(id); el.style.display="none"; el.classList.remove("fade");
+  });
+  $("skel").style.display="none";
+  $("manualPanel").style.display="none";
+  renderCoins(false);
+  renderSummary(false);
+  setProgress(null);
+
+  const V=VIEW.get(sym);
+  if(V){
+    V.log=await loadLog(sym);
+    render(V);
+    setStatus(V.done+" · "+fmtS(V.at)+" 계산분","live");
+  }else{
+    renderLog(await loadLog(sym));
+    setStatus("계산해 둔 값이 없다 · 새로고침을 누르면 이 코인만 계산한다","");
+  }
+}
+function renderCoins(busy){
+  const box=$("coins"); box.innerHTML="";
+  for(const c of COINS){
+    const b=document.createElement("button");
+    b.className="tab"+(c.sym===SYMBOL?" sel":"");
+    b.textContent=c.tag;
+    b.title=c.name;
+    b.disabled=!!busy;
+    b.addEventListener("click",()=>selectCoin(c.sym));
+    box.appendChild(b);
+  }
+}
+/* ================= 수동 입력 ================= */
+function normBars(list){
+  const now=Date.now(),out=[];
+  for(const b of list){
+    if(!isFinite(b.t)||!isFinite(b.c)||b.c<=0)continue;
+    if(!isFinite(b.ct))b.ct=b.t+BAR_MS-1;
+    if(b.ct>=now)continue;
+    if(!isFinite(b.v)||b.v<=0)b.v=1;
+    if(!isFinite(b.n)||b.n<=0)b.n=b.v;
+    if(!isFinite(b.tb))b.tb=b.v*0.5;
+    if(!isFinite(b.o))b.o=b.c;
+    if(!isFinite(b.h))b.h=Math.max(b.o,b.c);
+    if(!isFinite(b.l))b.l=Math.min(b.o,b.c);
+    out.push(b);
+  }
+  out.sort((a,b)=>a.t-b.t);
+  return out;
+}
+function parseTime(x){
+  if(typeof x==="number")return x<2e10?x*1000:x;
+  const s=String(x).trim();
+  if(/^\d+$/.test(s))return +s<2e10?+s*1000:+s;
+  const d=Date.parse(s.replace(" ","T"));
+  return isFinite(d)?d:NaN;
+}
+function parseData(text){
+  const s=text.trim();
+  if(!s)throw new Error("넣어 준 값이 비어 있다");
+  if(s[0]==="["){
+    const arr=JSON.parse(s);
+    if(!Array.isArray(arr)||!arr.length)throw new Error("줄줄이 늘어선 값이 아니다");
+    if(Array.isArray(arr[0]))
+      return normBars(arr.map(k=>({t:parseTime(k[0]),ct:parseTime(k[6]),o:+k[1],h:+k[2],l:+k[3],c:+k[4],v:+k[5],n:+k[8],tb:+k[9]})));
+    return normBars(arr.map(o=>({t:parseTime(o.open_time??o.time??o.timestamp??o.date),ct:parseTime(o.close_time??NaN),
+      o:+(o.open??o.o),h:+(o.high??o.h),l:+(o.low??o.l),c:+(o.close??o.c),v:+(o.volume??o.v),
+      n:+(o.trades??NaN),tb:+(o.taker_base??NaN)})));
+  }
+  const lines=s.split(/\r?\n/).filter(l=>l.trim());
+  const sep=lines[0].includes("\t")?"\t":(lines[0].includes(";")?";":",");
+  const head=lines[0].split(sep).map(h=>h.trim().toLowerCase().replace(/^"|"$/g,""));
+  const col=(...ns)=>{for(const n of ns){const i=head.indexOf(n);if(i>=0)return i;}return -1;};
+  const iT=col("open_time","time","timestamp","date","datetime","open time");
+  const iO=col("open"),iH=col("high"),iL=col("low"),iC=col("close");
+  const iV=col("volume","vol"),iN=col("trades","number of trades","count");
+  const iB=col("taker_base","taker buy base asset volume","taker_buy_base");
+  if(iT<0||iC<0)throw new Error("시각 칸이나 끝난 값 칸을 찾지 못했다");
+  const rows=[];
+  for(let k=1;k<lines.length;k++){
+    const p=lines[k].split(sep).map(x=>x.trim().replace(/^"|"$/g,""));
+    rows.push({t:parseTime(p[iT]),ct:NaN,o:+p[iO],h:+p[iH],l:+p[iL],c:+p[iC],
+               v:+p[iV],n:iN>=0?+p[iN]:NaN,tb:iB>=0?+p[iB]:NaN});
+  }
+  return normBars(rows);
+}
+async function applyManual(text){
+  try{
+    const bars=parseData(text);
+    if(bars.length<MIN_BARS)throw new Error("기록이 "+bars.length+"개뿐이다. "+MIN_BARS+"개는 있어야 한다");
+    await run(bars);
+  }catch(e){setStatus("입력 값 읽기 실패: "+e.message,"err");}
+}
+
+document.getElementById("applyData").addEventListener("click",()=>applyManual(document.getElementById("pasteIn").value));
+document.getElementById("fileIn").addEventListener("change",ev=>{
+  const f=ev.target.files[0];if(!f)return;
+  const rd=new FileReader();rd.onload=()=>applyManual(String(rd.result));rd.readAsText(f);
+});
+document.getElementById("refresh").addEventListener("click",()=>run());
+document.getElementById("btnDir").addEventListener("click",()=>openDiag("dir"));
+document.getElementById("btnSig").addEventListener("click",()=>openDiag("sig"));
+document.getElementById("btnPred").addEventListener("click",()=>openDiag("pred"));
+document.getElementById("mClose").addEventListener("click",closeDiag);
+document.getElementById("mBack").addEventListener("click",closeDiag);
+document.addEventListener("keydown",e=>{if(e.key==="Escape"&&!document.getElementById("modal").hidden)closeDiag();});
+window.addEventListener("resize",()=>{
+  if(!DIAG||!DIAG.openKind)return;
+  if(DIAG.openKind==="dir")drawCal();
+  else if(DIAG.openKind==="sig")drawHist();
+  else drawSens();
+});
+document.getElementById("clearLog").addEventListener("click",async()=>{await saveLog([]);renderLog([]);});
+
+document.getElementById("tgToken").addEventListener("change",saveTG);
+document.getElementById("tgChat").addEventListener("change",saveTG);
+document.getElementById("tgOn").addEventListener("change",async()=>{
+  await saveTG();
+  tgLog(TG.on?"자동 전송 켜짐 · 매시 01분에 네 코인을 모두 계산한다":"자동 전송 꺼짐");
+});
+document.getElementById("tgFind").addEventListener("click",tgFindChat);
+document.getElementById("tgTest").addEventListener("click",async()=>{
+  await saveTG();
+  tgLog("보내는 중");
+  try{
+    const r=await tgSend("연결 시험 · "+fmtT(Date.now())+"\n이 글이 보이면 봇과 대화 번호는 맞다.");
+    tgLog("시험 전송 성공 · "+r);
+  }catch(e){ tgLog("시험 전송 실패 · "+e.message); }
+});
+document.getElementById("tgNow").addEventListener("click",async()=>{
+  await saveTG();
+  await runAll("수동");
+});
+
+(async()=>{
+  const saved=await store.get(SYM_KEY);
+  if(saved&&COINS.some(c=>c.sym===saved))SYMBOL=saved;
+  document.getElementById("symLabel").textContent=symText();
+  renderCoins(false);
+  await loadTG();
+  renderLog(await loadLog());
+  refreshSummary(true);
+  run();
+})();
+</script>
+</body>
+</html>
