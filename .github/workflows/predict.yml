@@ -2,7 +2,7 @@ name: Coin Forecast v2
 
 on:
   schedule:
-    - cron: '*/15 * * * *' 
+    - cron: '7 * * * *'
   workflow_dispatch:
 
 jobs:
