@@ -1,4 +1,4 @@
-const { chromium } = require("playwright");
+const { chromium } = require('playwright');
 
 (async () => {
   const browser = await chromium.launch({
@@ -7,36 +7,36 @@ const { chromium } = require("playwright");
 
   const page = await browser.newPage();
 
-  const fileUrl =
-    "file://" +
-    process.cwd() +
-    "/coin-1h-forecast-auto.html";
+  await page.goto(
+    'https://minjjang831-wq.github.io/',
+    {
+      waitUntil: 'networkidle'
+    }
+  );
 
-  await page.goto(fileUrl);
-
-  console.log("HTML 로딩");
+  console.log('페이지 로드 완료');
 
   await page.waitForTimeout(180000);
 
   await page.fill(
-    "#tgToken",
+    '#tgToken',
     process.env.TG_TOKEN
   );
 
   await page.fill(
-    "#tgChat",
+    '#tgChat',
     process.env.TG_CHAT_ID
   );
 
-  await page.check("#tgOn");
+  await page.check('#tgOn');
 
-  await page.click("#tgNow");
+  await page.click('#tgNow');
 
-  console.log("예측 실행");
+  console.log('예측 실행');
 
   await page.waitForTimeout(30000);
 
   await browser.close();
 
-  console.log("완료");
+  console.log('전송 완료');
 })();
